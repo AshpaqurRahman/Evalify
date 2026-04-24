@@ -3,236 +3,45 @@
 
 {% block content %}
 <div class="page-title">Assignments &amp; Assessments</div>
-<div class="page-sub">View and submit assessments for your enrolled courses.</div>
+<div class="page-sub">Select a course to view its assessments.</div>
 
-{% if assignments_with_status %}
-  {% for assessment, submission, window in assignments_with_status %}
-  <div class="list-item">
-    <div class="list-icon" style="
-      {% if assessment.assessment_type == 'assignment' %}background:#dbeafe;
-      {% elif assessment.assessment_type == 'quiz' %}background:#fef9c3;
-      {% elif assessment.assessment_type == 'mid' %}background:#fde68a;
-      {% elif assessment.assessment_type == 'ct' %}background:#d1fae5;
-      {% else %}background:#fee2e2;{% endif %}
-      font-size:20px;">
-      {% if assessment.assessment_type == 'assignment' %}📝
-      {% elif assessment.assessment_type == 'quiz' %}❓
-      {% elif assessment.assessment_type == 'mid' %}📖
-      {% elif assessment.assessment_type == 'ct' %}✏️
-      {% else %}🎓{% endif %}
+{% if course_cards %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:8px;">
+  {% for cc in course_cards %}
+  <a href="{% url 'student_course_assignments' cc.course.id %}"
+     style="background:#fff;border:1px solid var(--border);border-radius:12px;
+            padding:20px;display:flex;flex-direction:column;gap:10px;
+            text-decoration:none;color:inherit;transition:box-shadow .2s,border-color .2s;"
+     onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.09)';this.style.borderColor='var(--teal)';"
+     onmouseout="this.style.boxShadow='none';this.style.borderColor='var(--border)';">
+    <div style="font-size:28px;">📚</div>
+    <div>
+      <div style="font-size:15px;font-weight:700;line-height:1.3;">{{ cc.course.code }}: {{ cc.course.name }}</div>
+      <div style="font-size:12px;color:var(--gray);margin-top:3px;">{{ cc.course.semester }}</div>
     </div>
-    <div class="list-body">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span class="list-title">{{ assessment.title }}</span>
-        <span class="tag" style="
-          {% if assessment.assessment_type == 'assignment' %}background:#dbeafe;color:#1d4ed8;
-          {% elif assessment.assessment_type == 'quiz' %}background:#fef9c3;color:#854d0e;
-          {% elif assessment.assessment_type == 'mid' %}background:#fde68a;color:#92400e;
-          {% elif assessment.assessment_type == 'ct' %}background:#d1fae5;color:#065f46;
-          {% else %}background:#fee2e2;color:#991b1b;{% endif %}">
-          {{ assessment.get_assessment_type_display }}
-        </span>
+    <div style="display:flex;gap:14px;margin-top:4px;">
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--teal);">{{ cc.total }}</div>
+        <div style="font-size:11px;color:var(--gray);">total</div>
       </div>
-      <div class="list-meta">
-        {{ assessment.course.code }}: {{ assessment.course.name }}
-        {% if assessment.due_date %}&nbsp;·&nbsp; Due: {{ assessment.due_date }}{% endif %}
-        &nbsp;·&nbsp; Total Marks: {{ assessment.total_marks }}
-        &nbsp;·&nbsp; Questions: {{ assessment.questions.count }}
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--green);">{{ cc.submitted }}</div>
+        <div style="font-size:11px;color:var(--gray);">submitted</div>
       </div>
-      {% if assessment.description %}
-      <div style="font-size:12px;color:var(--gray);margin-top:3px;">{{ assessment.description }}</div>
-      {% endif %}
-
-      {% if not submission and window %}
-        {% if window.is_late %}
-        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;
-                    background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;
-                    padding:5px 10px;font-size:12px;color:#c2410c;">
-          ⏰ <strong>Late:</strong> {{ window.window_msg }}
-          {% if assessment.late_deduction_value > 0 %}
-          &nbsp;—&nbsp;<strong>{{ assessment.late_deduction_value }}{% if assessment.late_deduction_type == 'percent' %}%{% else %} marks{% endif %}/day deduction</strong>
-          {% endif %}
-        </div>
-        {% elif window.can_submit %}
-        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;
-                    background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;
-                    padding:5px 10px;font-size:12px;color:#166534;">
-          ✓ {{ window.window_msg }}
-        </div>
-        {% else %}
-        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;
-                    background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;
-                    padding:5px 10px;font-size:12px;color:#991b1b;">
-          🔒 {{ window.window_msg }}
-        </div>
-        {% endif %}
-        {% if assessment.grace_period_hours > 0 %}
-        <span style="font-size:11px;color:var(--gray);margin-left:8px;">
-          Grace: {{ assessment.grace_period_hours }}h
-          {% if assessment.max_late_days > 0 %} · Max late: {{ assessment.max_late_days }} day(s){% endif %}
-        </span>
-        {% endif %}
-      {% endif %}
-
-      {% if assessment.questions.all %}
-      <div style="margin-top:8px;">
-        {% for q in assessment.questions.all %}
-        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:6px;">
-          <div style="font-size:13px;font-weight:600;">Q{{ q.order }}: {{ q.text }}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:3px;">
-            Marks: {{ q.max_marks }}
-            {% if q.clos.all %}&nbsp;·&nbsp;{% for c in q.clos.all %}<span class="tag tag-clo" style="font-size:10px;">{{ c.code }}</span>{% endfor %}{% endif %}
-            {% if q.plos.all %}&nbsp;{% for p in q.plos.all %}<span class="tag tag-plo" style="font-size:10px;">{{ p.code }}</span>{% endfor %}{% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        {% if submission %}
-          <span class="tag tag-graded">✓ Submitted {{ submission.submitted_at|date:"M d, Y H:i" }}</span>
-          {% if submission.is_late %}
-          <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:#fff7ed;color:#c2410c;">
-            ⏰ Late ({{ submission.hours_late|floatformat:1 }}h)
-          </span>
-          {% endif %}
-          {% if submission.submitted_file %}
-          <a href="{{ submission.submitted_file.url }}" target="_blank" style="font-size:12px;color:var(--teal);text-decoration:none;">📎 Download File</a>
-          {% endif %}
-          {% if submission.status == 'graded' %}
-            <span class="tag tag-graded">Score: {{ submission.total_score }}/{{ assessment.total_marks }}</span>
-            {% if submission.late_deduction > 0 %}
-            <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:#fee2e2;color:#991b1b;">
-              − {{ submission.late_deduction }} late deduction
-            </span>
-            <span style="font-size:13px;font-weight:800;color:var(--green);">
-              Final: {{ submission.final_score }}/{{ assessment.total_marks }}
-            </span>
-            {% endif %}
-          {% endif %}
-          {% if submission.feedback %}
-          <div style="width:100%;font-size:12px;color:var(--gray);margin-top:4px;background:#f0fdf4;border-radius:5px;padding:6px 10px;">
-            Feedback: {{ submission.feedback }}
-          </div>
-          {% endif %}
-        {% else %}
-          <span class="tag tag-pending">Pending</span>
-        {% endif %}
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--orange);">{{ cc.pending }}</div>
+        <div style="font-size:11px;color:var(--gray);">pending</div>
       </div>
     </div>
-
-    {% if not submission %}
-      {% if window.can_submit %}
-      <button class="btn {% if window.is_late %}btn-outline{% else %}btn-primary{% endif %} btn-sm"
-              style="{% if window.is_late %}border-color:var(--orange);color:var(--orange);{% endif %}"
-              onclick="openSubmitModal({{ assessment.id }}, '{{ assessment.title|escapejs }}',
-                       '{{ assessment.get_assessment_type_display }}', {{ assessment.total_marks }},
-                       {{ window.is_late|lower }})">
-        {% if window.is_late %}⏰ Submit Late{% else %}Submit{% endif %}
-      </button>
-      {% else %}
-      <span style="font-size:12px;color:var(--red);font-weight:600;flex-shrink:0;">🔒 Closed</span>
-      {% endif %}
-    {% endif %}
-  </div>
+    <div style="font-size:12px;color:var(--teal);font-weight:500;">View Assessments →</div>
+  </a>
   {% endfor %}
-{% else %}
-  <div class="empty">
-    <div class="empty-icon">📋</div>
-    <div class="empty-title">No assessments yet</div>
-    <div style="font-size:13px;">Assessments from your enrolled courses will appear here.</div>
-  </div>
-{% endif %}
-
-<div class="modal-overlay" id="submitModal">
-  <div class="modal">
-    <div class="modal-head">
-      <div>
-        <div class="modal-title" id="modalTitle">Submit</div>
-        <div style="font-size:12px;color:var(--gray);margin-top:2px;" id="modalSub"></div>
-      </div>
-      <button class="modal-close" onclick="closeModal('submitModal')">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div id="lateWarning" style="display:none;background:#fff7ed;border:1px solid #fed7aa;
-           border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#c2410c;">
-        ⏰ <strong>Late submission</strong> — a mark deduction will be applied automatically.
-      </div>
-      <form id="submitForm" enctype="multipart/form-data">
-        {% csrf_token %}
-        <div class="form-group">
-          <label class="form-label">Your Answer
-            <span style="color:var(--gray);font-weight:400;">(optional if uploading a file)</span>
-          </label>
-          <textarea class="form-control" name="content" id="answerText" rows="5"
-                    placeholder="Type your answer here..."></textarea>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Upload File
-            <span style="color:var(--gray);font-weight:400;">(optional if answer is typed)</span>
-          </label>
-          <input class="form-control" type="file" name="submitted_file" id="fileInput"
-                 accept=".pdf,.doc,.docx,.txt,.zip,.py,.java,.cpp,.c,.js,.png,.jpg,.jpeg">
-          <div style="font-size:11px;color:var(--gray);margin-top:4px;">
-            Accepted: PDF, Word, TXT, ZIP, code files, images
-          </div>
-        </div>
-        <div id="submitError" style="color:var(--red);font-size:13px;display:none;margin-top:6px;"></div>
-      </form>
-    </div>
-    <div class="modal-foot">
-      <button class="btn btn-primary btn-full" id="submitBtn" onclick="doSubmit()">Submit</button>
-    </div>
-  </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-let currentAssessmentId = null;
-
-function openSubmitModal(id, title, typeLabel, marks, isLate) {
-  currentAssessmentId = id;
-  document.getElementById('modalTitle').textContent = title;
-  document.getElementById('modalSub').textContent   = typeLabel + ' · ' + marks + ' marks';
-  document.getElementById('answerText').value  = '';
-  document.getElementById('fileInput').value   = '';
-  document.getElementById('submitError').style.display  = 'none';
-  document.getElementById('submitBtn').disabled    = false;
-  document.getElementById('submitBtn').textContent = isLate ? '⏰ Submit (Late)' : 'Submit';
-  document.getElementById('lateWarning').style.display  = isLate ? 'block' : 'none';
-  openModal('submitModal');
-}
-
-async function doSubmit() {
-  const errEl  = document.getElementById('submitError');
-  const btn    = document.getElementById('submitBtn');
-  const answer = document.getElementById('answerText').value.trim();
-  const file   = document.getElementById('fileInput').files[0];
-  if (!answer && !file) {
-    errEl.textContent = 'Please type an answer or upload a file.';
-    errEl.style.display = 'block'; return;
-  }
-  btn.disabled = true; btn.textContent = 'Submitting...';
-  errEl.style.display = 'none';
-  const formData = new FormData(document.getElementById('submitForm'));
-  try {
-    const res  = await fetch(`/student/assignments/${currentAssessmentId}/submit/`, {
-      method: 'POST', headers: { 'X-CSRFToken': getCsrf() }, body: formData,
-    });
-    const data = await res.json();
-    if (data.success) { closeModal('submitModal'); location.reload(); }
-    else {
-      errEl.textContent = data.error || 'Submission failed.';
-      errEl.style.display = 'block';
-      btn.disabled = false; btn.textContent = 'Submit';
-    }
-  } catch(e) {
-    errEl.textContent = 'Network error. Please try again.';
-    errEl.style.display = 'block';
-    btn.disabled = false; btn.textContent = 'Submit';
-  }
-}
-</script>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">📋</div>
+  <div class="empty-title">No assessments yet</div>
+  <div style="font-size:13px;">Assessments from your enrolled courses will appear here once published.</div>
+</div>
+{% endif %}
 {% endblock %}

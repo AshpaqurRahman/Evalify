@@ -3,10 +3,10 @@
 
 {% block content %}
 <div class="page-title">Analytics</div>
-<div class="page-sub">Grade distribution, CLO attainment per student, PLO attainment, and academic integrity overview.</div>
+<div class="page-sub">Grade distribution, CLO/PLO attainment, and course assessment report.</div>
 
 <!-- Course selector -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
   <span style="font-size:13px;font-weight:600;color:var(--gray);">Course:</span>
   <form method="get" style="display:flex;gap:8px;align-items:center;">
     <select name="course" class="form-control" style="width:260px;" onchange="this.form.submit()">
@@ -21,76 +21,342 @@
 
 {% if selected_course %}
 
-<!-- Grade distribution + Academic Integrity -->
-<div class="two-col" style="margin-bottom:20px;">
-  <div class="panel">
+<!-- Tab bar -->
+<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;">
+  <button id="tab-overall" onclick="switchTab('overall')"
+          style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;
+                 cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;
+                 color:var(--gray);transition:color .15s,border-color .15s;">
+    📊 Overall
+  </button>
+  <button id="tab-students" onclick="switchTab('students')"
+          style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;
+                 cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;
+                 color:var(--gray);transition:color .15s,border-color .15s;">
+    👤 Students
+  </button>
+</div>
+
+<!-- ══════════ OVERALL PANE ══════════ -->
+<div id="pane-overall">
+
+  <!-- Grade Distribution -->
+  <div class="panel" style="margin-bottom:20px;">
     <div class="panel-head">
       <div class="panel-title">📊 Grade Distribution</div>
+      <span style="font-size:12px;color:var(--gray);">Per enrolled student — overall marks across all published assessments</span>
     </div>
-    <canvas id="gradeChart" height="200"></canvas>
+    <div style="position:relative;height:240px;padding-top:8px;">
+      <canvas id="gradeChart"></canvas>
+    </div>
   </div>
 
+  <!-- Class-wide CLO + PLO averages -->
+  <div class="panel" style="margin-bottom:20px;">
+    <div class="panel-head">
+      <div class="panel-title">📈 Class-wide Attainment Averages</div>
+      <span style="font-size:12px;color:var(--gray);">Aggregated from marks sheet across all graded submissions</span>
+    </div>
+    {% if clo_attainment_list or plo_attainment_list %}
+    <div style="display:flex;gap:24px;flex-wrap:wrap;padding:4px 0;">
+
+      {% if clo_attainment_list %}
+      <div style="flex:1;min-width:220px;">
+        <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:10px;
+                    text-transform:uppercase;letter-spacing:.6px;">Average CLO Attainment per CLO</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:7px 10px;text-align:left;border-bottom:2px solid var(--border);">CLO</th>
+              <th style="padding:7px 10px;text-align:center;border-bottom:2px solid var(--border);">Avg %</th>
+              <th style="padding:7px 10px;text-align:center;border-bottom:2px solid var(--border);">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for clo in clo_attainment_list %}
+            <tr style="border-bottom:1px solid #f3f4f6;">
+              <td style="padding:7px 10px;font-weight:600;">{{ clo.code }}</td>
+              <td style="padding:7px 10px;text-align:center;">
+                <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+                  <div style="flex:1;max-width:72px;background:#e5e7eb;border-radius:4px;height:6px;overflow:hidden;">
+                    <div style="width:{% if clo.attainment > 100 %}100{% else %}{{ clo.attainment }}{% endif %}%;
+                                background:{% if clo.attainment >= 60 %}#10b981{% else %}#ef4444{% endif %};
+                                height:100%;border-radius:4px;"></div>
+                  </div>
+                  <span style="font-weight:700;">{{ clo.attainment }}%</span>
+                </div>
+              </td>
+              <td style="padding:7px 10px;text-align:center;">
+                {% if clo.attainment >= 60 %}
+                <span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">✓ Attained</span>
+                {% else %}
+                <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">✗ Not Attained</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if plo_attainment_list %}
+      <div style="flex:1;min-width:220px;">
+        <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:10px;
+                    text-transform:uppercase;letter-spacing:.6px;">Average PLO Attainment per PLO</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:7px 10px;text-align:left;border-bottom:2px solid var(--border);">PLO</th>
+              <th style="padding:7px 10px;text-align:center;border-bottom:2px solid var(--border);">Avg %</th>
+              <th style="padding:7px 10px;text-align:center;border-bottom:2px solid var(--border);">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for plo in plo_attainment_list %}
+            <tr style="border-bottom:1px solid #f3f4f6;">
+              <td style="padding:7px 10px;font-weight:600;" title="{{ plo.description }}">{{ plo.code }}</td>
+              <td style="padding:7px 10px;text-align:center;">
+                <div style="display:flex;align-items:center;gap:8px;justify-content:center;">
+                  <div style="flex:1;max-width:72px;background:#e5e7eb;border-radius:4px;height:6px;overflow:hidden;">
+                    <div style="width:{% if plo.attainment > 100 %}100{% else %}{{ plo.attainment }}{% endif %}%;
+                                background:{% if plo.attainment >= 60 %}#10b981{% else %}#ef4444{% endif %};
+                                height:100%;border-radius:4px;"></div>
+                  </div>
+                  <span style="font-weight:700;">{{ plo.attainment }}%</span>
+                </div>
+              </td>
+              <td style="padding:7px 10px;text-align:center;">
+                {% if plo.attainment >= 60 %}
+                <span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">✓ Attained</span>
+                {% else %}
+                <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">✗ Not Attained</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+    </div>
+    {% else %}
+    <div class="empty" style="padding:32px;">
+      <div class="empty-icon" style="font-size:28px;">📊</div>
+      <div class="empty-title">No CLO/PLO data yet</div>
+      <div style="font-size:13px;">Map CLOs and PLOs to questions to see attainment data.</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- PLO Bar Chart -->
+  {% if plo_attainment_list %}
+  <div class="panel" style="margin-bottom:20px;">
+    <div class="panel-head">
+      <div class="panel-title">🎯 PLO Attainment Chart</div>
+      <span style="font-size:12px;color:var(--gray);">Aggregated across all graded submissions</span>
+    </div>
+    <div style="position:relative;height:300px;padding-top:8px;">
+      <canvas id="ploBarChart"></canvas>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- eSCAR Table -->
+  {% if escar_rows %}
+  <div class="panel" style="margin-bottom:20px;">
+    <div class="panel-head">
+      <div class="panel-title">📋 End Semester Course Assessment Report (eSCAR)</div>
+      <span style="font-size:12px;color:var(--gray);">Attainment: class average ≥ 60% on each CLO/PLO</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:720px;">
+        <thead>
+          <tr style="background:#1e3a5f;color:#fff;">
+            <th colspan="5" style="padding:10px 12px;text-align:center;border-right:3px solid #fff;">
+              eSCAR of Course Learning Outcomes (CLOs)
+            </th>
+            <th colspan="5" style="padding:10px 12px;text-align:center;">
+              eSCAR of Program Learning Outcomes (PLOs)
+            </th>
+          </tr>
+          <tr style="background:#2d5f8a;color:#fff;font-size:12px;">
+            <th style="padding:8px 10px;text-align:left;font-weight:600;">CLO</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;">Graded / Enrolled</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;">Class Avg %</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;">Attainment</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;border-right:3px solid rgba(255,255,255,0.25);">Action Plan</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;">PLO</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;">Graded / Enrolled</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;">Class Avg %</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;">Attainment</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;">Action Plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in escar_rows %}
+          <tr style="border-bottom:1px solid #e5e7eb;{% cycle '' 'background:#f9fafb;' %}">
+            {% if row.clo %}
+            <td style="padding:8px 10px;font-weight:700;color:#1e3a5f;">{{ row.clo.code }}</td>
+            <td style="padding:8px 10px;text-align:center;">{{ row.clo.count }} / {{ row.clo.total }}</td>
+            <td style="padding:8px 10px;text-align:center;font-weight:700;">{{ row.clo.pct }}%</td>
+            <td style="padding:8px 10px;text-align:center;">
+              {% if row.clo.attained %}
+              <span style="background:#d1fae5;color:#065f46;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;">Yes</span>
+              {% else %}
+              <span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;">No</span>
+              {% endif %}
+            </td>
+            <td style="padding:8px 10px;font-size:12px;color:#4b5563;border-right:3px solid #e5e7eb;">{{ row.clo.action }}</td>
+            {% else %}
+            <td colspan="5" style="border-right:3px solid #e5e7eb;"></td>
+            {% endif %}
+
+            {% if row.plo %}
+            <td style="padding:8px 10px;font-weight:700;color:#1e3a5f;">{{ row.plo.code }}</td>
+            <td style="padding:8px 10px;text-align:center;">{{ row.plo.count }} / {{ row.plo.total }}</td>
+            <td style="padding:8px 10px;text-align:center;font-weight:700;">{{ row.plo.pct }}%</td>
+            <td style="padding:8px 10px;text-align:center;">
+              {% if row.plo.attained %}
+              <span style="background:#d1fae5;color:#065f46;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;">Yes</span>
+              {% else %}
+              <span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;">No</span>
+              {% endif %}
+            </td>
+            <td style="padding:8px 10px;font-size:12px;color:#4b5563;">{{ row.plo.action }}</td>
+            {% else %}
+            <td colspan="5"></td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="10" style="padding:8px 12px;font-size:11px;color:var(--gray);
+                                     border-top:2px solid var(--border);font-style:italic;">
+              * "Class Avg %" = average of all graded students' individual CLO/PLO percentages (from marks sheet).
+              Attainment is "Yes" when the class average ≥ 60%. "Graded / Enrolled" shows how many students were included.
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div><!-- end pane-overall -->
+
+<!-- ══════════ STUDENTS PANE ══════════ -->
+<div id="pane-students" style="display:none;">
   <div class="panel">
     <div class="panel-head">
-      <div class="panel-title">🛡 Academic Integrity</div>
+      <div class="panel-title">👤 Student CLO / PLO Attainment</div>
+      <span style="font-size:12px;color:var(--gray);">Click a student to view individual CLO and PLO percentages from marks sheet</span>
     </div>
-    <canvas id="integrityChart" height="200"></canvas>
-  </div>
-</div>
-
-<!-- CLO Attainment Per Student (Line Chart) -->
-<div class="panel" style="margin-bottom:20px;">
-  <div class="panel-head">
-    <div class="panel-title">📈 CLO Attainment Per Student</div>
-    <span style="font-size:12px;color:var(--gray);">Average CLO attainment across all graded submissions</span>
-  </div>
-  {% if student_clo_list %}
-  <div style="position:relative;height:300px;padding-top:8px;">
-    <canvas id="studentCloChart"></canvas>
-  </div>
-  {% else %}
-  <div class="empty" style="padding:32px;">
-    <div class="empty-icon" style="font-size:28px;">📉</div>
-    <div class="empty-title">No graded submissions yet</div>
-  </div>
-  {% endif %}
-</div>
-
-<!-- PLO Attainment (Vertical Bar Chart with Gradient) -->
-<div class="panel" style="margin-bottom:20px;">
-  <div class="panel-head">
-    <div class="panel-title">🎯 PLO Attainment</div>
-    <span style="font-size:12px;color:var(--gray);">Aggregated across all graded submissions</span>
-  </div>
-  {% if plo_attainment_list %}
-  <div style="position:relative;height:300px;padding-top:8px;">
-    <canvas id="ploBarChart"></canvas>
-  </div>
-  {% else %}
-  <div class="empty" style="padding:32px;">
-    <div class="empty-icon" style="font-size:28px;">📉</div>
-    <div class="empty-title">No PLOs mapped yet</div>
-  </div>
-  {% endif %}
-</div>
-
-<!-- Weak students -->
-{% if weak_students %}
-<div class="panel" style="margin-bottom:20px;">
-  <div class="panel-head">
-    <div class="panel-title">⚠ Students Below 70%</div>
-  </div>
-  {% for s in weak_students %}
-  <div class="weakness-row">
+    {% if student_details %}
     <div>
-      <div style="font-size:13px;font-weight:600;">{{ s.name }}</div>
-      <div style="font-size:12px;color:var(--gray);">Score: {{ s.score }}</div>
+      {% for s in student_details %}
+      <div id="student-row-{{ forloop.counter0 }}"
+           onclick="toggleStudent({{ forloop.counter0 }})"
+           style="cursor:pointer;padding:12px 16px;border-bottom:1px solid var(--border);
+                  display:flex;align-items:center;justify-content:space-between;
+                  transition:background .15s;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:34px;height:34px;border-radius:50%;background:var(--teal);color:#fff;
+                      display:flex;align-items:center;justify-content:center;
+                      font-size:13px;font-weight:700;flex-shrink:0;">
+            {{ s.name|slice:":1"|upper }}
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:600;">{{ s.name }}</div>
+            <div style="font-size:11px;color:var(--gray);">Overall CLO avg: {{ s.overall }}%</div>
+          </div>
+        </div>
+        <span id="chevron-{{ forloop.counter0 }}"
+              style="font-size:13px;color:var(--gray);transition:transform .2s;display:inline-block;">▼</span>
+      </div>
+      <div id="student-detail-{{ forloop.counter0 }}"
+           style="display:none;padding:16px 20px;background:#f9fafb;border-bottom:1px solid var(--border);">
+        <div style="display:flex;gap:24px;flex-wrap:wrap;">
+
+          {% if s.clo_data %}
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:8px;
+                        text-transform:uppercase;letter-spacing:.6px;">CLO Attainment</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#e5e7eb;">
+                  <th style="padding:5px 8px;text-align:left;">CLO</th>
+                  <th style="padding:5px 8px;text-align:center;">Score %</th>
+                  <th style="padding:5px 8px;text-align:center;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for clo in s.clo_data %}
+                <tr style="border-top:1px solid #e5e7eb;">
+                  <td style="padding:6px 8px;font-weight:600;">{{ clo.code }}</td>
+                  <td style="padding:6px 8px;text-align:center;font-weight:700;">{{ clo.pct }}%</td>
+                  <td style="padding:6px 8px;text-align:center;">
+                    {% if clo.pct >= 60 %}
+                    <span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">✓ Pass</span>
+                    {% else %}
+                    <span style="background:#fee2e2;color:#991b1b;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">✗ Fail</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+
+          {% if s.plo_data %}
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:8px;
+                        text-transform:uppercase;letter-spacing:.6px;">PLO Attainment</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#e5e7eb;">
+                  <th style="padding:5px 8px;text-align:left;">PLO</th>
+                  <th style="padding:5px 8px;text-align:center;">Score %</th>
+                  <th style="padding:5px 8px;text-align:center;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for plo in s.plo_data %}
+                <tr style="border-top:1px solid #e5e7eb;">
+                  <td style="padding:6px 8px;font-weight:600;">{{ plo.code }}</td>
+                  <td style="padding:6px 8px;text-align:center;font-weight:700;">{{ plo.pct }}%</td>
+                  <td style="padding:6px 8px;text-align:center;">
+                    {% if plo.pct >= 60 %}
+                    <span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">✓ Pass</span>
+                    {% else %}
+                    <span style="background:#fee2e2;color:#991b1b;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">✗ Fail</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+
+          {% if not s.clo_data and not s.plo_data %}
+          <div style="color:var(--gray);font-size:13px;">No CLO/PLO data for this student yet.</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
     </div>
-    <div class="weakness-score">{{ s.pct }}%</div>
+    {% else %}
+    <div class="empty" style="padding:32px;">
+      <div class="empty-icon" style="font-size:28px;">👤</div>
+      <div class="empty-title">No graded submissions yet</div>
+    </div>
+    {% endif %}
   </div>
-  {% endfor %}
-</div>
-{% endif %}
+</div><!-- end pane-students -->
 
 {% else %}
 <div class="empty">
@@ -105,169 +371,178 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>
-const GRADE_DIST       = {{ grade_dist|safe }};
-const INTEGRITY_DATA   = {{ integrity_data|safe }};
-const STUDENT_CLO_DATA = {{ student_clo_data|safe }};
-const PLO_ATTAINMENT   = {{ plo_attainment|safe }};
+{% if selected_course %}
+const GRADE_DIST     = {{ grade_dist|safe }};
+const PLO_ATTAINMENT = {{ plo_attainment|safe }};
 
-/* ── Grade Distribution ── */
-if (document.getElementById('gradeChart')) {
-  new Chart(document.getElementById('gradeChart'), {
-    type: 'bar',
-    data: {
-      labels: GRADE_DIST.map(g => g.label),
-      datasets: [{
-        label: 'Students',
-        data: GRADE_DIST.map(g => g.count),
-        backgroundColor: ['#10b981','#3b82f6','#f59e0b','#f97316','#ef4444'],
-        borderRadius: 6,
-      }]
-    },
-    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-  });
-}
+/* ── localStorage keys (per course so each course remembers its own state) ── */
+const TAB_KEY    = 'ea_tab_{{ selected_course.id }}';
+const SCROLL_KEY = 'ea_scroll_{{ selected_course.id }}';
 
-/* ── Academic Integrity ── */
-if (document.getElementById('integrityChart')) {
-  new Chart(document.getElementById('integrityChart'), {
-    type: 'doughnut',
-    data: {
-      labels: ['Clean', 'AI Flagged', 'Plagiarism'],
-      datasets: [{
-        data: [INTEGRITY_DATA.clean, INTEGRITY_DATA.ai_flag, INTEGRITY_DATA.plagiarism],
-        backgroundColor: ['#10b981','#f59e0b','#ef4444'],
-      }]
-    },
-    options: { plugins: { legend: { position: 'bottom' } }, cutout: '60%' }
-  });
-}
+/* ── Chart init (lazy — only when Overall tab is visible) ── */
+let chartsReady = false;
 
-/* ── CLO Attainment Per Student (Line Chart, demo-1 style) ── */
-if (document.getElementById('studentCloChart') && STUDENT_CLO_DATA.length) {
-  new Chart(document.getElementById('studentCloChart'), {
-    type: 'line',
-    data: {
-      labels: STUDENT_CLO_DATA.map(s => s.name),
-      datasets: [{
-        label: 'CLO Attainment',
-        data: STUDENT_CLO_DATA.map(s => s.attainment),
-        borderColor: '#20b2aa',
-        backgroundColor: 'rgba(32,178,170,0.08)',
-        borderWidth: 2.5,
-        pointBackgroundColor: '#20b2aa',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2.5,
-        pointRadius: 6,
-        pointHoverRadius: 9,
-        tension: 0.35,
-        fill: true,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      layout: { padding: { top: 28, right: 16 } },
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          anchor: 'top',
-          align: 'top',
-          offset: 6,
-          formatter: v => v + '%',
-          font: { size: 11, weight: '700' },
-          color: '#374151',
-        }
+function initCharts() {
+  if (chartsReady) return;
+  chartsReady = true;
+
+  if (document.getElementById('gradeChart')) {
+    const GRADE_COLORS = [
+      '#059669','#10b981','#34d399',   /* A+, A, A- */
+      '#0284c7','#0ea5e9','#38bdf8',   /* B+, B, B- */
+      '#d97706','#f59e0b',             /* C+, C */
+      '#f97316','#ef4444',             /* D, F */
+    ];
+    new Chart(document.getElementById('gradeChart'), {
+      type: 'bar',
+      data: {
+        labels: GRADE_DIST.map(g => g.label),
+        datasets: [{
+          label: 'Students',
+          data: GRADE_DIST.map(g => g.count),
+          backgroundColor: GRADE_COLORS,
+          borderRadius: 6,
+        }]
       },
-      scales: {
-        y: {
-          min: 0,
-          max: 110,
-          ticks: {
-            callback: v => v > 100 ? '' : v + '%',
-            font: { size: 11 },
-            color: '#6b7280',
-            stepSize: 20,
-          },
-          grid: { color: '#f3f4f6' },
-          border: { display: false },
-        },
-        x: {
-          ticks: { font: { size: 11 }, maxRotation: 30, color: '#6b7280' },
-          grid: { display: false },
-          border: { display: false },
-        }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-/* ── PLO Attainment (Vertical Bar with gradient, demo-2 style) ── */
-if (document.getElementById('ploBarChart') && PLO_ATTAINMENT.length) {
-  const ctx = document.getElementById('ploBarChart').getContext('2d');
-  const grad = ctx.createLinearGradient(0, 0, 0, 270);
-  grad.addColorStop(0, 'rgba(16,185,129,0.92)');
-  grad.addColorStop(1, 'rgba(16,185,129,0.18)');
-
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: PLO_ATTAINMENT.map(p => p.code),
-      datasets: [{
-        label: 'PLO Attainment',
-        data: PLO_ATTAINMENT.map(p => p.attainment),
-        backgroundColor: grad,
-        borderRadius: { topLeft: 7, topRight: 7 },
-        borderSkipped: 'bottom',
-        barPercentage: 0.55,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      layout: { padding: { top: 32, right: 16 } },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            title: items => {
-              const idx = items[0].dataIndex;
-              return PLO_ATTAINMENT[idx].code + ': ' + PLO_ATTAINMENT[idx].description;
-            },
-            label: ctx => ' ' + ctx.raw + '%'
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            anchor: 'end', align: 'end', offset: 2,
+            formatter: v => v > 0 ? v : '',
+            font: { size: 11, weight: '700' },
+            color: '#374151',
           }
         },
-        datalabels: {
-          anchor: 'end',
-          align: 'end',
-          offset: 4,
-          formatter: v => v + '%',
-          font: { size: 12, weight: '700' },
-          color: '#065f46',
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: '#f3f4f6' } } }
+      },
+      plugins: [ChartDataLabels]
+    });
+  }
+
+  if (document.getElementById('ploBarChart') && PLO_ATTAINMENT.length) {
+    const ctx  = document.getElementById('ploBarChart').getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 270);
+    grad.addColorStop(0, 'rgba(16,185,129,0.92)');
+    grad.addColorStop(1, 'rgba(16,185,129,0.18)');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: PLO_ATTAINMENT.map(p => p.code),
+        datasets: [{
+          label: 'PLO Attainment',
+          data: PLO_ATTAINMENT.map(p => p.attainment),
+          backgroundColor: grad,
+          borderRadius: { topLeft: 7, topRight: 7 },
+          borderSkipped: 'bottom',
+          barPercentage: 0.55,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 32, right: 16 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: items => PLO_ATTAINMENT[items[0].dataIndex].code + ': ' + PLO_ATTAINMENT[items[0].dataIndex].description,
+              label: c => ' ' + c.raw + '%'
+            }
+          },
+          datalabels: {
+            anchor: 'end', align: 'end', offset: 4,
+            formatter: v => v + '%',
+            font: { size: 12, weight: '700' },
+            color: '#065f46',
+          }
+        },
+        scales: {
+          y: {
+            min: 0, max: 115,
+            ticks: { callback: v => v > 100 ? '' : v + '%', font: { size: 11 }, color: '#6b7280', stepSize: 20 },
+            grid: { color: '#f3f4f6' }, border: { display: false },
+          },
+          x: {
+            ticks: { font: { size: 12, weight: '600' }, color: '#374151' },
+            grid: { display: false }, border: { display: false },
+          }
         }
       },
-      scales: {
-        y: {
-          min: 0,
-          max: 115,
-          ticks: {
-            callback: v => v > 100 ? '' : v + '%',
-            font: { size: 11 },
-            color: '#6b7280',
-            stepSize: 20,
-          },
-          grid: { color: '#f3f4f6' },
-          border: { display: false },
-        },
-        x: {
-          ticks: { font: { size: 12, weight: '600' }, color: '#374151' },
-          grid: { display: false },
-          border: { display: false },
-        }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
+      plugins: [ChartDataLabels]
+    });
+  }
 }
+
+/* ── Tab switching ── */
+function switchTab(name, save) {
+  const overall  = document.getElementById('pane-overall');
+  const students = document.getElementById('pane-students');
+  overall.style.display  = name === 'overall'  ? '' : 'none';
+  students.style.display = name === 'students' ? '' : 'none';
+
+  ['overall','students'].forEach(t => {
+    const btn = document.getElementById('tab-' + t);
+    if (!btn) return;
+    const active = t === name;
+    btn.style.color            = active ? 'var(--teal)' : 'var(--gray)';
+    btn.style.borderBottomColor = active ? 'var(--teal)' : 'transparent';
+  });
+
+  if (name === 'overall') initCharts();
+  if (save !== false) {
+    localStorage.setItem(TAB_KEY, name);
+    localStorage.setItem(SCROLL_KEY, '0');
+  }
+}
+
+/* ── Student accordion ── */
+function toggleStudent(idx) {
+  const detail  = document.getElementById('student-detail-' + idx);
+  const chevron = document.getElementById('chevron-' + idx);
+  const row     = document.getElementById('student-row-' + idx);
+  const isOpen  = detail.style.display !== 'none';
+  detail.style.display    = isOpen ? 'none' : 'block';
+  chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+  row.style.background    = isOpen ? '' : '#e6faf8';
+  /* persist open accordion state */
+  const openKey = 'ea_open_{{ selected_course.id }}';
+  const openSet = new Set(JSON.parse(localStorage.getItem(openKey) || '[]'));
+  isOpen ? openSet.delete(idx) : openSet.add(idx);
+  localStorage.setItem(openKey, JSON.stringify([...openSet]));
+}
+
+/* ── Restore state on load ── */
+document.addEventListener('DOMContentLoaded', () => {
+  /* 1. Restore tab */
+  const savedTab = localStorage.getItem(TAB_KEY) || 'overall';
+  switchTab(savedTab, false);
+
+  /* 2. Restore open accordions */
+  const openKey = 'ea_open_{{ selected_course.id }}';
+  const openSet = new Set(JSON.parse(localStorage.getItem(openKey) || '[]'));
+  openSet.forEach(idx => {
+    const detail  = document.getElementById('student-detail-' + idx);
+    const chevron = document.getElementById('chevron-' + idx);
+    const row     = document.getElementById('student-row-' + idx);
+    if (detail)  { detail.style.display = 'block'; }
+    if (chevron) { chevron.style.transform = 'rotate(180deg)'; }
+    if (row)     { row.style.background = '#e6faf8'; }
+  });
+
+  /* 3. Restore scroll position */
+  const savedY = parseInt(localStorage.getItem(SCROLL_KEY) || '0', 10);
+  if (savedY > 0) setTimeout(() => window.scrollTo({ top: savedY, behavior: 'instant' }), 30);
+});
+
+/* ── Save scroll position continuously ── */
+let _scrollTimer;
+window.addEventListener('scroll', () => {
+  clearTimeout(_scrollTimer);
+  _scrollTimer = setTimeout(() => localStorage.setItem(SCROLL_KEY, window.scrollY), 120);
+});
+{% endif %}
 </script>
 {% endblock %}

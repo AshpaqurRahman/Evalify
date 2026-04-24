@@ -15,6 +15,7 @@ urlpatterns = [
     path('faculty/courses/<int:course_id>/add-clo/', views.add_clo, name='add_clo'),
     path('faculty/courses/<int:course_id>/clos/', views.get_course_clos, name='get_course_clos'),
     path('faculty/courses/<int:course_id>/add-student/', views.add_student_to_course, name='add_student_to_course'),
+    path('faculty/courses/<int:course_id>/remove-student/<int:student_id>/', views.remove_student_from_course, name='remove_student_from_course'),
     path('faculty/clo/<int:clo_id>/delete/', views.delete_clo, name='delete_clo'),
     path('faculty/assessments/', views.faculty_assessments, name='faculty_assessments'),
     path('faculty/assessments/create/', views.create_assessment, name='create_assessment'),
@@ -47,6 +48,7 @@ urlpatterns = [
     #Student
     path('student/dashboard/', views.student_dashboard, name='student_dashboard'),
     path('student/courses/', views.student_courses, name='student_courses'),
+    path('student/courses/enroll-code/', views.enroll_via_code, name='enroll_via_code'),
     path('student/courses/<int:course_id>/enroll/', views.enroll_course, name='enroll_course'),
     path('student/submissions/', views.student_submissions, name='student_submissions'),
     path('student/submissions/<int:assessment_id>/submit/', views.submit_assessment, name='submit_assessment'),
@@ -55,7 +57,9 @@ urlpatterns = [
     path('student/notifications/unread-count/', views.get_unread_count,      name='get_unread_count'),
     path('student/notifications/mark-all-read/',views.mark_all_read,         name='mark_all_read'),
     path('student/assignments/', views.student_assignments, name='student_assignments'),
+    path('student/assignments/course/<int:course_id>/', views.student_course_assignments, name='student_course_assignments'),
     path('student/assignments/<int:assignment_id>/submit/', views.submit_assignment, name='submit_assignment'),
+    path('student/assignments/<int:assignment_id>/unsubmit/', views.unsubmit_assignment, name='unsubmit_assignment'),
 
     # Question Bank — Faculty
     path('faculty/question-bank/',                        views.faculty_question_bank,   name='faculty_question_bank'),

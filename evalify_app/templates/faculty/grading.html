@@ -3,7 +3,59 @@
 
 {% block content %}
 <div class="page-title">Grading</div>
-<div class="page-sub">Review student submissions and award marks per question.</div>
+<div class="page-sub">{% if selected_course %}{{ selected_course.code }}: {{ selected_course.name }}{% else %}Select a course to start grading.{% endif %}</div>
+
+{% if not selected_course %}
+<!-- ── Level 1: Course cards ── -->
+{% if course_cards %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:8px;">
+  {% for cc in course_cards %}
+  <a href="{% url 'faculty_grading' %}?course={{ cc.course.id }}"
+     style="background:#fff;border:1px solid var(--border);border-radius:12px;
+            padding:20px;display:flex;flex-direction:column;gap:10px;
+            text-decoration:none;color:inherit;transition:box-shadow .2s,border-color .2s;"
+     onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.09)';this.style.borderColor='var(--teal)';"
+     onmouseout="this.style.boxShadow='none';this.style.borderColor='var(--border)';">
+    <div style="font-size:28px;">📚</div>
+    <div>
+      <div style="font-size:15px;font-weight:700;line-height:1.3;">{{ cc.course.code }}: {{ cc.course.name }}</div>
+      <div style="font-size:12px;color:var(--gray);margin-top:3px;">{{ cc.course.semester }}</div>
+    </div>
+    <div style="display:flex;gap:14px;margin-top:4px;">
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--teal);">{{ cc.total }}</div>
+        <div style="font-size:11px;color:var(--gray);">total</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--orange);">{{ cc.pending }}</div>
+        <div style="font-size:11px;color:var(--gray);">pending</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:20px;font-weight:800;color:var(--green);">{{ cc.graded }}</div>
+        <div style="font-size:11px;color:var(--gray);">graded</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--teal);font-weight:500;">Grade Submissions →</div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">📋</div>
+  <div class="empty-title">No submissions yet</div>
+  <div style="font-size:13px;">Student submissions will appear here once they submit assessments.</div>
+</div>
+{% endif %}
+
+{% else %}
+<!-- ── Level 2: Submissions list ── -->
+
+<!-- Breadcrumb -->
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray);margin-bottom:20px;">
+  <a href="{% url 'faculty_grading' %}" style="color:var(--teal);text-decoration:none;">← All Courses</a>
+  <span>›</span>
+  <span style="color:var(--text);font-weight:600;">{{ selected_course.code }}: {{ selected_course.name }}</span>
+</div>
 
 <!-- Stats -->
 <div class="g-stats" style="margin-bottom:24px;">
@@ -23,13 +75,6 @@
   </div>
   <div class="g-stat">
     <div>
-      <div class="g-stat-label">Flagged</div>
-      <div class="g-stat-val" style="color:var(--red);">{{ flagged }}</div>
-    </div>
-    <span style="font-size:26px;margin-left:10px;">🚩</span>
-  </div>
-  <div class="g-stat">
-    <div>
       <div class="g-stat-label">Total</div>
       <div class="g-stat-val">{{ submissions|length }}</div>
     </div>
@@ -43,7 +88,6 @@
     <button class="tab-btn active" onclick="filterTab('all',this)">All</button>
     <button class="tab-btn" onclick="filterTab('submitted',this)">Pending</button>
     <button class="tab-btn" onclick="filterTab('graded',this)">Graded</button>
-    <button class="tab-btn" onclick="filterTab('flagged',this)">Flagged</button>
   </div>
   <div class="search-wrap">
     <span class="search-icon">🔍</span>
@@ -63,16 +107,16 @@
 
       <!-- Left avatar -->
       <div class="sub-avatar {{ s.status }}" style="width:42px;height:42px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;">
-        {% if s.status == 'graded' %}✅
-        {% elif s.status == 'flagged' %}🚩
-        {% else %}📄{% endif %}
+        {% if s.status == 'graded' %}✅{% else %}📄{% endif %}
       </div>
 
       <!-- Info -->
       <div class="list-body">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span class="list-title">{{ s.student.full_name|default:s.student.username }}</span>
-          <span class="tag tag-{{ s.status }}">{{ s.status|capfirst }}</span>
+          <span class="tag {% if s.status == 'graded' or s.status == 'flagged' %}tag-graded{% else %}tag-pending{% endif %}">
+            {% if s.status == 'graded' or s.status == 'flagged' %}Graded{% else %}Pending{% endif %}
+          </span>
           {% if s.plagiarism_score > 30 %}
             <span class="tag tag-similar" style="font-size:10px;">⚠ Plagiarism {{ s.plagiarism_score|floatformat:0 }}%</span>
           {% endif %}
@@ -140,10 +184,13 @@
   </div>
 </div>
 
+{% endif %}{# end selected_course #}
+
 {% endblock %}
 
 
 {% block scripts %}
+{% if selected_course %}
 <style>
   .q-grade-card {
     background:#f8fafc;
@@ -292,27 +339,6 @@ async function openGrading(subId) {
   // Build body HTML
   let html = '';
 
-  // ── Integrity flags ──
-  const pFlag = d.plagiarism > 30;
-  const aFlag = d.ai_content > 50;
-  html += `<div class="integrity-grid">`;
-  html += `<div class="integrity-box ${pFlag?'warn':''}">
-    <div class="integrity-label">Plagiarism Score</div>
-    <div class="integrity-val ${pFlag?'warn':''}">${d.plagiarism.toFixed(1)}%</div>
-    <div class="score-bar"><div class="score-bar-fill" style="width:${d.plagiarism}%;background:${pFlag?'var(--red)':'var(--green)'};"></div></div>
-  </div>`;
-  html += `<div class="integrity-box ${aFlag?'warn':''}">
-    <div class="integrity-label">AI Content Score</div>
-    <div class="integrity-val ${aFlag?'warn':''}">${d.ai_content.toFixed(1)}%</div>
-    <div class="score-bar"><div class="score-bar-fill" style="width:${d.ai_content}%;background:${aFlag?'var(--red)':'var(--green)'};"></div></div>
-  </div>`;
-  html += `</div>`;
-
-  if (pFlag || aFlag) {
-    html += `<div class="flag-warn" style="margin-bottom:16px;">
-      ⚠ This submission will be marked as <strong>Flagged</strong> due to integrity concerns.
-    </div>`;
-  }
 
   // ── Student answer ──
   if (d.content || d.file_url) {
@@ -493,4 +519,5 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
+{% endif %}{# end selected_course scripts #}
 {% endblock %}

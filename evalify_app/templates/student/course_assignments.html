@@ -1,0 +1,142 @@
+{% extends 'student/base.html' %}
+{% block nav_assignments %}active{% endblock %}
+
+{% block content %}
+
+<!-- Breadcrumb -->
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray);margin-bottom:18px;flex-wrap:wrap;">
+  <a href="{% url 'student_assignments' %}" style="color:var(--teal);text-decoration:none;">← Assignments</a>
+  <span>›</span>
+  <span style="color:var(--text);font-weight:600;">{{ course.code }}: {{ course.name }}</span>
+</div>
+
+<div class="page-title">{{ course.code }}: {{ course.name }}</div>
+<div class="page-sub">{{ course.semester }} &nbsp;·&nbsp; Assessments &amp; submissions</div>
+
+{% if assignments_with_status %}
+  {% for assessment, submission, window in assignments_with_status %}
+  <div class="list-item">
+    <div class="list-icon" style="
+      {% if assessment.assessment_type == 'assignment' %}background:#dbeafe;
+      {% elif assessment.assessment_type == 'quiz' %}background:#fef9c3;
+      {% elif assessment.assessment_type == 'mid' %}background:#fde68a;
+      {% elif assessment.assessment_type == 'ct' %}background:#d1fae5;
+      {% else %}background:#fee2e2;{% endif %}
+      font-size:20px;">
+      {% if assessment.assessment_type == 'assignment' %}📝
+      {% elif assessment.assessment_type == 'quiz' %}❓
+      {% elif assessment.assessment_type == 'mid' %}📖
+      {% elif assessment.assessment_type == 'ct' %}✏️
+      {% else %}🎓{% endif %}
+    </div>
+    <div class="list-body">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="list-title">{{ assessment.title }}</span>
+        <span class="tag" style="
+          {% if assessment.assessment_type == 'assignment' %}background:#dbeafe;color:#1d4ed8;
+          {% elif assessment.assessment_type == 'quiz' %}background:#fef9c3;color:#854d0e;
+          {% elif assessment.assessment_type == 'mid' %}background:#fde68a;color:#92400e;
+          {% elif assessment.assessment_type == 'ct' %}background:#d1fae5;color:#065f46;
+          {% else %}background:#fee2e2;color:#991b1b;{% endif %}">
+          {{ assessment.get_assessment_type_display }}
+        </span>
+      </div>
+      <div class="list-meta">
+        {% if assessment.due_date %}Due: {{ assessment.due_date }} &nbsp;·&nbsp; {% endif %}
+        Total Marks: {{ assessment.total_marks }}
+        &nbsp;·&nbsp; Questions: {{ assessment.questions.count }}
+      </div>
+      {% if assessment.description %}
+      <div style="font-size:12px;color:var(--gray);margin-top:3px;">{{ assessment.description }}</div>
+      {% endif %}
+
+      {% if not submission and window %}
+        {% if window.is_late %}
+        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;
+                    background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;
+                    padding:5px 10px;font-size:12px;color:#c2410c;">
+          ⏰ <strong>Late:</strong> {{ window.window_msg }}
+          {% if assessment.late_deduction_value > 0 %}
+          &nbsp;—&nbsp;<strong>{{ assessment.late_deduction_value }}{% if assessment.late_deduction_type == 'percent' %}%{% else %} marks{% endif %}/day deduction</strong>
+          {% endif %}
+        </div>
+        {% elif window.can_submit %}
+        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;
+                    background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;
+                    padding:5px 10px;font-size:12px;color:#166534;">
+          ✓ {{ window.window_msg }}
+        </div>
+        {% else %}
+        <div style="display:inline-flex;align-items:center;gap:6px;margin-top:6px;
+                    background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;
+                    padding:5px 10px;font-size:12px;color:#991b1b;">
+          🔒 {{ window.window_msg }}
+        </div>
+        {% endif %}
+        {% if assessment.grace_period_hours > 0 %}
+        <span style="font-size:11px;color:var(--gray);margin-left:8px;">
+          Grace: {{ assessment.grace_period_hours }}h
+          {% if assessment.max_late_days > 0 %} · Max late: {{ assessment.max_late_days }} day(s){% endif %}
+        </span>
+        {% endif %}
+      {% endif %}
+
+      <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        {% if submission %}
+          <span class="tag tag-graded">✓ Submitted {{ submission.submitted_at|date:"M d, Y H:i" }}</span>
+          {% if submission.is_late %}
+          <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:#fff7ed;color:#c2410c;">
+            ⏰ Late ({{ submission.hours_late|floatformat:1 }}h)
+          </span>
+          {% endif %}
+          {% if submission.status == 'graded' %}
+            <span class="tag tag-graded">Score: {{ submission.total_score }}/{{ assessment.total_marks }}</span>
+            {% if submission.late_deduction > 0 %}
+            <span style="font-size:13px;font-weight:800;color:var(--green);">
+              Final: {{ submission.final_score }}/{{ assessment.total_marks }}
+            </span>
+            {% endif %}
+          {% endif %}
+          {% if submission.feedback %}
+          <div style="width:100%;font-size:12px;color:var(--gray);margin-top:4px;background:#f0fdf4;border-radius:5px;padding:6px 10px;">
+            Feedback: {{ submission.feedback }}
+          </div>
+          {% endif %}
+        {% else %}
+          <span class="tag tag-pending">Pending</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if assessment.assessment_type == 'quiz' or assessment.assessment_type == 'ct' or assessment.assessment_type == 'mid' or assessment.assessment_type == 'final' %}
+    <a href="{% url 'submit_assignment' assessment.id %}"
+       class="btn btn-outline btn-sm" style="color:var(--teal);border-color:var(--teal);">
+      View Details
+    </a>
+    {% elif not submission %}
+      {% if window.can_submit %}
+      <a href="{% url 'submit_assignment' assessment.id %}"
+         class="btn {% if window.is_late %}btn-outline{% else %}btn-primary{% endif %} btn-sm"
+         style="{% if window.is_late %}border-color:var(--orange);color:var(--orange);{% endif %}">
+        {% if window.is_late %}⏰ Submit Late{% else %}Submit{% endif %}
+      </a>
+      {% else %}
+      <span style="font-size:12px;color:var(--red);font-weight:600;flex-shrink:0;">🔒 Closed</span>
+      {% endif %}
+    {% else %}
+    <a href="{% url 'submit_assignment' assessment.id %}"
+       class="btn btn-outline btn-sm" style="color:var(--teal);border-color:var(--teal);">
+      View Details
+    </a>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty">
+    <div class="empty-icon">📋</div>
+    <div class="empty-title">No assessments yet</div>
+    <div style="font-size:13px;">No published assessments for this course yet.</div>
+    <a href="{% url 'student_assignments' %}" class="btn btn-outline" style="margin-top:12px;">← Back to Courses</a>
+  </div>
+{% endif %}
+{% endblock %}

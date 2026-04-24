@@ -1,5 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+import random
+import string
 
 
 class User(AbstractUser):
@@ -32,6 +34,19 @@ class Course(models.Model):
     semester = models.CharField(max_length=50, default='Fall 2025')
     faculty = models.ForeignKey(User, on_delete=models.CASCADE, related_name='courses')
     created_at = models.DateTimeField(auto_now_add=True)
+    enrollment_code = models.CharField(max_length=8, unique=True, blank=True, default='')
+
+    def _gen_code(self):
+        chars = string.ascii_uppercase + string.digits
+        while True:
+            code = ''.join(random.choices(chars, k=6))
+            if not Course.objects.filter(enrollment_code=code).exists():
+                return code
+
+    def save(self, *args, **kwargs):
+        if not self.enrollment_code:
+            self.enrollment_code = self._gen_code()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.code}: {self.name}"

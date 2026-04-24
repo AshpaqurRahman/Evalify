@@ -1,0 +1,357 @@
+{% extends 'student/base.html' %}
+{% block nav_assignments %}active{% endblock %}
+
+{% block content %}
+
+<!-- Breadcrumb -->
+<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray);margin-bottom:18px;flex-wrap:wrap;">
+  <a href="{% url 'student_course_assignments' assignment.course.id %}" style="color:var(--teal);text-decoration:none;">← {{ assignment.course.code }}</a>
+  <span>›</span>
+  <span style="color:var(--text);font-weight:600;">{{ assignment.title }}</span>
+</div>
+
+<!-- Assessment header card -->
+<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px;">
+  <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+    <div style="width:48px;height:48px;border-radius:10px;flex-shrink:0;
+                background:{% if assignment.assessment_type == 'assignment' %}#dbeafe{% elif assignment.assessment_type == 'quiz' %}#fef9c3{% elif assignment.assessment_type == 'mid' %}#fde68a{% elif assignment.assessment_type == 'ct' %}#d1fae5{% else %}#fee2e2{% endif %};
+                display:flex;align-items:center;justify-content:center;font-size:22px;">
+      {% if assignment.assessment_type == 'assignment' %}📝{% elif assignment.assessment_type == 'quiz' %}❓{% elif assignment.assessment_type == 'mid' %}📖{% elif assignment.assessment_type == 'ct' %}✏️{% else %}🎓{% endif %}
+    </div>
+    <div style="flex:1;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+        <span style="font-size:20px;font-weight:700;">{{ assignment.title }}</span>
+        <span class="tag" style="
+          {% if assignment.assessment_type == 'assignment' %}background:#dbeafe;color:#1d4ed8;
+          {% elif assignment.assessment_type == 'quiz' %}background:#fef9c3;color:#854d0e;
+          {% elif assignment.assessment_type == 'mid' %}background:#fde68a;color:#92400e;
+          {% elif assignment.assessment_type == 'ct' %}background:#d1fae5;color:#065f46;
+          {% else %}background:#fee2e2;color:#991b1b;{% endif %}">
+          {{ assignment.get_assessment_type_display }}
+        </span>
+        {% if existing_sub %}
+        <span class="tag tag-graded">✓ Submitted</span>
+        {% endif %}
+      </div>
+      <div style="font-size:13px;color:var(--gray);display:flex;gap:16px;flex-wrap:wrap;">
+        <span>📚 {{ assignment.course.code }}: {{ assignment.course.name }}</span>
+        <span>🏆 {{ assignment.total_marks }} marks</span>
+        {% if assignment.due_date %}<span>📅 Due: {{ assignment.due_date }}</span>{% endif %}
+        <span>📝 {{ questions|length }} question{{ questions|length|pluralize }}</span>
+      </div>
+      {% if assignment.description %}
+      <div style="margin-top:8px;font-size:13px;color:var(--text);line-height:1.5;">{{ assignment.description }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Submission window status -->
+  {% if not existing_sub and window %}
+  <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+    {% if window.is_late %}
+    <div style="display:inline-flex;align-items:center;gap:8px;background:#fff7ed;
+                border:1px solid #fed7aa;border-radius:8px;padding:8px 14px;font-size:13px;color:#c2410c;">
+      ⏰ <strong>Late submission:</strong> {{ window.window_msg }}
+      {% if assignment.late_deduction_value > 0 %}
+      &nbsp;—&nbsp; <strong>{{ assignment.late_deduction_value }}{% if assignment.late_deduction_type == 'percent' %}%{% else %} marks{% endif %}/day deduction</strong>
+      {% endif %}
+    </div>
+    {% elif window.can_submit %}
+    <div style="display:inline-flex;align-items:center;gap:8px;background:#f0fdf4;
+                border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;font-size:13px;color:#166534;">
+      ✓ {{ window.window_msg }}
+    </div>
+    {% else %}
+    <div style="display:inline-flex;align-items:center;gap:8px;background:#fee2e2;
+                border:1px solid #fca5a5;border-radius:8px;padding:8px 14px;font-size:13px;color:#991b1b;">
+      🔒 {{ window.window_msg }}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Submission status strip -->
+  {% if existing_sub %}
+  <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;
+              display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <span style="font-size:13px;color:var(--gray);">
+      Submitted {{ existing_sub.submitted_at|date:"M d, Y H:i" }}
+      {% if existing_sub.is_late %}
+      &nbsp;·&nbsp; <strong style="color:#c2410c;">⏰ Late ({{ existing_sub.hours_late|floatformat:1 }}h)</strong>
+      {% endif %}
+    </span>
+    {% if existing_sub.status == 'graded' %}
+    <span class="tag tag-graded">Score: {{ existing_sub.total_score }}/{{ assignment.total_marks }}</span>
+    {% if existing_sub.late_deduction > 0 %}
+    <span style="font-size:13px;font-weight:800;color:var(--green);">
+      Final: {{ existing_sub.final_score }}/{{ assignment.total_marks }}
+    </span>
+    {% endif %}
+    {% endif %}
+    {% if existing_sub.feedback %}
+    <div style="width:100%;margin-top:6px;font-size:13px;background:#f0fdf4;
+                border-radius:7px;padding:8px 12px;color:#166534;">
+      💬 Feedback: {{ existing_sub.feedback }}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+
+<!-- Questions section -->
+{% if questions %}
+<div style="background:#fff;border:1px solid var(--border);border-radius:12px;
+            padding:20px 24px;margin-bottom:20px;">
+  <div style="font-size:15px;font-weight:700;margin-bottom:16px;
+              display:flex;align-items:center;gap:8px;">
+    📋 Questions
+    <span style="font-size:12px;font-weight:400;color:var(--gray);">({{ questions|length }} total)</span>
+  </div>
+
+  {% for q in questions %}
+  <div style="border:1px solid var(--border);border-radius:10px;padding:16px 18px;
+              margin-bottom:14px;background:#f8fafc;">
+
+    <!-- Question row -->
+    <div style="display:flex;align-items:flex-start;gap:12px;">
+      <span style="font-size:12px;font-weight:700;color:var(--teal);background:#e0f5f4;
+                   padding:3px 10px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-top:2px;">
+        Q{{ q.order }}
+      </span>
+      <div style="flex:1;">
+        <div style="font-size:15px;font-weight:500;line-height:1.6;">{{ q.text }}</div>
+        {% if q.image %}
+        <img src="{{ q.image.url }}"
+             style="max-width:100%;max-height:300px;margin-top:10px;border-radius:9px;
+                    border:1px solid var(--border);display:block;">
+        {% endif %}
+        {% if q.clos.all or q.plos.all %}
+        <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">
+          {% for c in q.clos.all %}<span class="tag tag-clo">{{ c.code }}</span>{% endfor %}
+          {% for p in q.plos.all %}<span class="tag tag-plo">{{ p.code }}</span>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      <span style="font-size:13px;color:var(--gray);white-space:nowrap;flex-shrink:0;
+                   font-weight:600;margin-top:2px;">
+        {{ q.max_marks }} mark{{ q.max_marks|pluralize }}
+      </span>
+    </div>
+
+    <!-- Sub-questions -->
+    {% with subs=q.sub_questions.all %}
+    {% if subs %}
+    <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border);">
+      {% for sq in subs %}
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
+                  padding:12px 14px;margin-bottom:8px;margin-left:16px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <span style="font-size:11px;font-weight:700;color:#166534;white-space:nowrap;
+                       flex-shrink:0;margin-top:3px;background:#dcfce7;
+                       padding:2px 8px;border-radius:5px;">
+            Part {{ forloop.counter }}
+          </span>
+          <div style="flex:1;">
+            <div style="font-size:14px;line-height:1.6;">{{ sq.text }}</div>
+            {% if sq.image %}
+            <img src="{{ sq.image.url }}"
+                 style="max-width:100%;max-height:240px;margin-top:8px;border-radius:8px;
+                        border:1px solid var(--border);display:block;">
+            {% endif %}
+            {% if sq.clos.all or sq.plos.all %}
+            <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">
+              {% for c in sq.clos.all %}<span class="tag tag-clo" style="font-size:10px;">{{ c.code }}</span>{% endfor %}
+              {% for p in sq.plos.all %}<span class="tag tag-plo" style="font-size:10px;">{{ p.code }}</span>{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          <span style="font-size:12px;color:#065f46;white-space:nowrap;flex-shrink:0;
+                       font-weight:600;margin-top:3px;">
+            {{ sq.max_marks }} mark{{ sq.max_marks|pluralize }}
+          </span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+
+<!-- Your Submission — shown when already submitted (not for view-only types) -->
+{% if existing_sub and assignment.assessment_type != 'quiz' and assignment.assessment_type != 'ct' and assignment.assessment_type != 'mid' and assignment.assessment_type != 'final' %}
+<div style="background:#fff;border:1px solid var(--border);border-radius:12px;
+            padding:20px 24px;margin-bottom:20px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;
+              margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+    <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
+      ✅ Your Submission
+      {% if existing_sub.status == 'graded' %}
+      <span style="font-size:12px;font-weight:600;padding:2px 10px;border-radius:8px;
+                   background:#dcfce7;color:#166534;">Graded</span>
+      {% else %}
+      <span style="font-size:12px;font-weight:600;padding:2px 10px;border-radius:8px;
+                   background:#fef9c3;color:#854d0e;">Awaiting review</span>
+      {% endif %}
+    </div>
+    {% if existing_sub.status != 'graded' %}
+    <form method="post" action="{% url 'unsubmit_assignment' assignment.id %}"
+          onsubmit="return confirm('Unsubmit this assignment? You can then make changes and resubmit.');">
+      {% csrf_token %}
+      <button type="submit"
+              style="background:#fff;border:1px solid #fca5a5;color:#dc2626;
+                     padding:7px 16px;border-radius:7px;font-size:13px;font-weight:600;
+                     cursor:pointer;display:flex;align-items:center;gap:6px;">
+        ↩ Unsubmit &amp; Edit
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  <!-- Submitted text answer -->
+  {% if existing_sub.content %}
+  <div style="margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:var(--gray);margin-bottom:8px;">Written Answer</div>
+    <div style="background:#f8fafc;border:1px solid var(--border);border-radius:9px;
+                padding:14px 16px;font-size:14px;line-height:1.7;white-space:pre-wrap;
+                color:var(--text);">{{ existing_sub.content }}</div>
+  </div>
+  {% endif %}
+
+  <!-- Submitted file -->
+  {% if existing_sub.submitted_file %}
+  <div>
+    <div style="font-size:13px;font-weight:600;color:var(--gray);margin-bottom:8px;">Attached File</div>
+    <a href="{{ existing_sub.submitted_file.url }}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:10px;background:#f0fdf4;
+              border:1px solid #bbf7d0;border-radius:9px;padding:12px 16px;
+              text-decoration:none;color:#166534;font-size:14px;font-weight:500;">
+      <span style="font-size:20px;">📎</span>
+      <div>
+        <div>{{ existing_sub.submitted_file.name|cut:"submissions/" }}</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:2px;">Click to download / view</div>
+      </div>
+    </a>
+  </div>
+  {% endif %}
+
+  {% if not existing_sub.content and not existing_sub.submitted_file %}
+  <div style="font-size:13px;color:var(--gray);">No content was submitted.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+
+<!-- Submission form (only for submittable types, not already submitted, window open) -->
+{% if assignment.assessment_type != 'quiz' and assignment.assessment_type != 'ct' and assignment.assessment_type != 'mid' and assignment.assessment_type != 'final' %}
+{% if not existing_sub and window.can_submit %}
+<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:20px 24px;">
+  <div style="font-size:15px;font-weight:700;margin-bottom:16px;
+              display:flex;align-items:center;gap:8px;">
+    ✏️ Your Submission
+    {% if window.is_late %}
+    <span style="font-size:12px;font-weight:600;padding:2px 10px;border-radius:8px;
+                 background:#fff7ed;color:#c2410c;">⏰ Late</span>
+    {% endif %}
+  </div>
+
+  {% if error %}
+  <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;
+              padding:10px 14px;margin-bottom:14px;font-size:13px;color:#991b1b;">
+    ⚠ {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <div class="form-group">
+      <label class="form-label" style="font-size:14px;">
+        Written Answer
+        <span style="color:var(--gray);font-weight:400;">(optional if uploading a file)</span>
+      </label>
+      <textarea class="form-control" name="content" rows="8"
+                style="resize:vertical;font-size:14px;line-height:1.6;"
+                placeholder="Type your answer here..."></textarea>
+    </div>
+
+    <div class="form-group" style="margin-top:16px;">
+      <label class="form-label" style="font-size:14px;">
+        Attach File
+        <span style="color:var(--gray);font-weight:400;">(optional if answer is typed)</span>
+      </label>
+      <div id="dropZone"
+           style="border:2px dashed var(--border);border-radius:10px;padding:28px 20px;
+                  text-align:center;cursor:pointer;transition:border-color .2s,background .2s;"
+           onclick="document.getElementById('fileInput').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--teal)';this.style.background='#f0fdf4';"
+           ondragleave="this.style.borderColor='var(--border)';this.style.background='';"
+           ondrop="handleDrop(event)">
+        <div style="font-size:28px;margin-bottom:8px;">📎</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text);">Drop your file here or click to browse</div>
+        <div id="fileNameDisplay"
+             style="font-size:12px;color:var(--gray);margin-top:6px;">
+          PDF, Word, TXT, ZIP, code files, images accepted
+        </div>
+      </div>
+      <input type="file" id="fileInput" name="submitted_file"
+             accept=".pdf,.doc,.docx,.txt,.zip,.py,.java,.cpp,.c,.js,.png,.jpg,.jpeg"
+             style="display:none;" onchange="showFileName(this)">
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px;align-items:center;">
+      <button type="submit" class="btn {% if window.is_late %}btn-outline{% else %}btn-primary{% endif %}"
+              style="{% if window.is_late %}border-color:var(--orange);color:var(--orange);background:#fff7ed;{% endif %}
+                     font-size:15px;padding:11px 28px;">
+        {% if window.is_late %}⏰ Submit Late{% else %}Submit Assignment{% endif %}
+      </button>
+      <a href="{% url 'student_assignments' %}" class="btn btn-outline">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% elif not existing_sub %}
+<!-- Window closed -->
+<div style="background:#fff;border:1px solid var(--border);border-radius:12px;
+            padding:24px;text-align:center;color:var(--gray);">
+  <div style="font-size:28px;margin-bottom:8px;">🔒</div>
+  <div style="font-size:15px;font-weight:600;color:var(--text);">Submission Closed</div>
+  <div style="font-size:13px;margin-top:4px;">{{ window.window_msg }}</div>
+  <a href="{% url 'student_assignments' %}" class="btn btn-outline" style="margin-top:16px;">Back to Assignments</a>
+</div>
+{% endif %}
+{% endif %}{# end submittable-type check #}
+
+<script>
+function showFileName(input) {
+  const display = document.getElementById('fileNameDisplay');
+  const zone    = document.getElementById('dropZone');
+  if (input.files && input.files[0]) {
+    const name = input.files[0].name;
+    const size = (input.files[0].size / 1024).toFixed(1) + ' KB';
+    display.innerHTML = `<strong style="color:var(--teal);">📄 ${name}</strong> &nbsp;·&nbsp; ${size}`;
+    zone.style.borderColor = 'var(--teal)';
+    zone.style.background  = '#f0fdf4';
+  }
+}
+
+function handleDrop(event) {
+  event.preventDefault();
+  const zone  = document.getElementById('dropZone');
+  const input = document.getElementById('fileInput');
+  zone.style.borderColor = 'var(--border)';
+  zone.style.background  = '';
+  const files = event.dataTransfer.files;
+  if (files.length) {
+    input.files = files;
+    showFileName(input);
+  }
+}
+</script>
+
+{% endblock %}

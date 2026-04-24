@@ -2,12 +2,15 @@
 {% block nav_courses %}active{% endblock %}
 {% block content %}
 
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
   <div>
-    <div class="page-title">Course &amp; CLO/PLO Management</div>
+    <div class="page-title">Courses &amp; CLO/PLO Management</div>
     <div class="page-sub">Define courses with learning outcomes and OBE mappings</div>
   </div>
-  <button class="btn btn-primary" onclick="openModal('addCourseModal')">+ Add Course</button>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-outline" onclick="openModal('addPloModal')">+ Add PLO</button>
+    <button class="btn btn-primary" onclick="openModal('addCourseModal')">+ Add Course</button>
+  </div>
 </div>
 
 {% if messages %}
@@ -16,119 +19,220 @@
 {% endfor %}
 {% endif %}
 
-<!-- Course List -->
+<!-- ══════════ COURSE LIST ══════════ -->
 {% for course in courses %}
-<div class="accordion-item">
-  <div class="accordion-trigger">
-    <div class="list-icon teal">-</div>
-    <div class="list-body">
-      <div class="list-title">{{ course.code }}: {{ course.name }}</div>
-      <div class="list-meta">{{ course.semester }} • {{ course.credit_hours }} Credit Hours</div>
+<div style="background:#fff;border:1px solid var(--border);border-radius:14px;
+            margin-bottom:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.04);">
+
+  <!-- Course header (clickable accordion trigger) -->
+  <div onclick="toggleCourse({{ course.id }})"
+       style="padding:18px 22px;cursor:pointer;display:flex;align-items:center;gap:16px;
+              transition:background .15s;"
+       id="course-hdr-{{ course.id }}"
+       onmouseover="this.style.background='#f9fafb';"
+       onmouseout="this.style.background='';">
+
+    <!-- Colour swatch -->
+    <div style="width:46px;height:46px;border-radius:10px;
+                background:linear-gradient(135deg,var(--teal),var(--teal-dark));
+                display:flex;align-items:center;justify-content:center;
+                font-size:18px;font-weight:800;color:#fff;flex-shrink:0;letter-spacing:-1px;">
+      {{ course.code|slice:":2"|upper }}
     </div>
-    <div style="display:flex;gap:8px;align-items:center;">
+
+    <!-- Name + meta -->
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:16px;font-weight:700;color:var(--text);">
+        {{ course.code }}: {{ course.name }}
+      </div>
+      <div style="font-size:12px;color:var(--gray);margin-top:2px;">
+        {{ course.semester }} &nbsp;·&nbsp; {{ course.credit_hours }} Credit Hours
+      </div>
+    </div>
+
+    <!-- Enrollment code badge -->
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;" onclick="event.stopPropagation()">
+      <div style="background:#1e3a5f;color:#fff;border-radius:8px;padding:6px 14px;
+                  font-size:13px;font-weight:700;letter-spacing:2px;font-family:monospace;">
+        {{ course.enrollment_code }}
+      </div>
+      <button onclick="copyCode('{{ course.enrollment_code }}')"
+              title="Copy enrollment code"
+              style="background:#f3f4f6;border:1px solid var(--border);border-radius:6px;
+                     padding:5px 10px;cursor:pointer;font-size:12px;color:var(--gray);">
+        Copy
+      </button>
+    </div>
+
+    <!-- Stats chips -->
+    <div style="display:flex;gap:6px;flex-shrink:0;" onclick="event.stopPropagation()">
       <span class="tag tag-clo">{{ course.clos.count }} CLOs</span>
       <span class="tag tag-plo">{{ course.plo_count }} PLOs</span>
-      <span class="accordion-arrow">▼</span>
+      <span style="background:#f3f4f6;color:var(--gray);padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">
+        {{ course.enrollments.count }} Students
+      </span>
     </div>
+
+    <span id="chevron-c-{{ course.id }}"
+          style="font-size:13px;color:var(--gray);transition:transform .2s;flex-shrink:0;">▼</span>
   </div>
 
-  <div class="accordion-body">
-    {% if course.description %}
-    <p style="font-size:13px;color:#6b7280;margin-bottom:14px;">{{ course.description }}</p>
-    {% endif %}
+  <!-- Course body (tabs) -->
+  <div id="course-body-{{ course.id }}" style="display:none;border-top:1px solid var(--border);">
+    <div style="padding:0 22px;">
 
-    <div class="tab-container">
-      <div class="tab-bar">
-        <button class="tab-btn active" data-tab="clo_{{ course.id }}">⊙ CLOs</button>
-        <button class="tab-btn" data-tab="plo_{{ course.id }}">↗ PLOs</button>
-        <button class="tab-btn" data-tab="students_{{ course.id }}">Students</button>
+      <!-- Tab bar -->
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:0;">
+        <button onclick="switchCTab({{ course.id }},'clo')" id="ctab-clo-{{ course.id }}"
+                style="padding:12px 18px;font-size:13px;font-weight:600;border:none;background:none;
+                       cursor:pointer;border-bottom:3px solid var(--teal);margin-bottom:-1px;color:var(--teal);">
+          ⊙ CLOs
+        </button>
+        <button onclick="switchCTab({{ course.id }},'plo')" id="ctab-plo-{{ course.id }}"
+                style="padding:12px 18px;font-size:13px;font-weight:600;border:none;background:none;
+                       cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px;color:var(--gray);">
+          ↗ PLOs
+        </button>
+        <button onclick="switchCTab({{ course.id }},'students')" id="ctab-students-{{ course.id }}"
+                style="padding:12px 18px;font-size:13px;font-weight:600;border:none;background:none;
+                       cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px;color:var(--gray);">
+          👥 Students ({{ course.enrollments.count }})
+        </button>
       </div>
 
-      <!--CLOs-->
-      <div class="tab-content active" data-tab-content="clo_{{ course.id }}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <strong style="font-size:14px;">Course Learning Outcomes</strong>
+      <!-- CLOs tab -->
+      <div id="cpane-clo-{{ course.id }}" style="padding:18px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <span style="font-size:14px;font-weight:700;">Course Learning Outcomes</span>
           <button class="btn btn-outline btn-sm" onclick="openAddClo({{ course.id }})">+ Add CLO</button>
         </div>
         {% for clo in course.clos.all %}
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:8px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-            <div style="flex:1;">
-              <div style="margin-bottom:6px;">
-                <span class="tag tag-clo">{{ clo.code }}</span>
-                <span class="tag tag-bloom">{{ clo.bloom_level }}</span>
-                {% for plo in clo.plos.all %}
-                <span class="tag tag-plo">{{ plo.code }}</span>
-                {% endfor %}
-              </div>
-              <div style="font-size:13px;color:#374151;white-space:pre-wrap;">{{ clo.description }}</div>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;
+                    margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;">
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+              <span class="tag tag-clo">{{ clo.code }}</span>
+              <span class="tag tag-bloom">{{ clo.bloom_level }}</span>
+              {% for plo in clo.plos.all %}
+              <span class="tag tag-plo">{{ plo.code }}</span>
+              {% endfor %}
             </div>
-            <button onclick="deleteClo({{ clo.id }}, this)"
-              style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;flex-shrink:0;margin-left:10px;">
-              🗑 Delete
-            </button>
+            <div style="font-size:13px;color:#374151;line-height:1.5;white-space:pre-wrap;">{{ clo.description }}</div>
           </div>
+          <button onclick="deleteClo({{ clo.id }}, this)"
+                  style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;
+                         border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;flex-shrink:0;">
+            🗑
+          </button>
         </div>
         {% empty %}
-        <div style="text-align:center;padding:20px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;">
+        <div style="text-align:center;padding:28px;color:#9ca3af;font-size:13px;
+                    background:#f9fafb;border-radius:10px;border:1px dashed #e5e7eb;">
           No CLOs yet. Click "+ Add CLO" to get started.
         </div>
         {% endfor %}
       </div>
 
-      <!--PLOs-->
-      <div class="tab-content" data-tab-content="plo_{{ course.id }}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <strong style="font-size:14px;">Program Learning Outcomes (linked via CLOs)</strong>
+      <!-- PLOs tab -->
+      <div id="cpane-plo-{{ course.id }}" style="display:none;padding:18px 0;">
+        <div style="margin-bottom:14px;">
+          <span style="font-size:14px;font-weight:700;">Program Learning Outcomes</span>
+          <span style="font-size:12px;color:var(--gray);margin-left:8px;">Linked via CLOs</span>
         </div>
         {% for clo in course.clos.all %}
           {% for plo in clo.plos.all %}
-          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:6px;display:flex;align-items:center;gap:10px;">
+          <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;
+                      padding:12px 16px;margin-bottom:6px;display:flex;align-items:center;gap:10px;">
             <span class="tag tag-plo">{{ plo.code }}</span>
             <span style="font-size:13px;color:#374151;flex:1;">{{ plo.description }}</span>
-            <span style="font-size:11px;color:#9ca3af;">via {{ clo.code }}</span>
+            <span style="font-size:11px;color:#9ca3af;flex-shrink:0;">via {{ clo.code }}</span>
           </div>
           {% endfor %}
         {% empty %}
-        <div style="text-align:center;padding:20px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;">
+        <div style="text-align:center;padding:28px;color:#9ca3af;font-size:13px;
+                    background:#f9fafb;border-radius:10px;border:1px dashed #e5e7eb;">
           No PLOs mapped yet. Add CLOs and map them to PLOs.
         </div>
         {% endfor %}
       </div>
 
-      <!--Students-->
-      <div class="tab-content" data-tab-content="students_{{ course.id }}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <strong style="font-size:14px;">Enrolled Students ({{ course.enrollments.count }})</strong>
-          <button class="btn btn-outline btn-sm" onclick="openAddStudent({{ course.id }})">+ Add Student</button>
-        </div>
-        {% for enroll in course.enrollments.all %}
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;margin-bottom:6px;display:flex;align-items:center;gap:10px;">
-          <div style="width:32px;height:32px;border-radius:50%;background:#20b2aa;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;">
-            {{ enroll.student.full_name|first|default:enroll.student.username|first|upper }}
+      <!-- Students tab -->
+      <div id="cpane-students-{{ course.id }}" style="display:none;padding:18px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <span style="font-size:14px;font-weight:700;">
+            Enrolled Students
+            <span style="background:var(--teal-light);color:var(--teal);font-size:12px;padding:2px 8px;border-radius:12px;margin-left:6px;">{{ course.enrollments.count }}</span>
+          </span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;color:var(--gray);">Code:</span>
+            <span style="font-family:monospace;font-weight:700;font-size:14px;color:#1e3a5f;
+                         background:#e0f2fe;padding:3px 10px;border-radius:6px;letter-spacing:1px;">
+              {{ course.enrollment_code }}
+            </span>
+            <button class="btn btn-outline btn-sm" onclick="openAddStudent({{ course.id }})">+ Add Manually</button>
           </div>
-          <div>
-            <div style="font-size:14px;font-weight:500;">{{ enroll.student.full_name|default:enroll.student.username }}</div>
-            <div style="font-size:12px;color:#9ca3af;">{{ enroll.student.email }}</div>
-          </div>
         </div>
-        {% empty %}
-        <div style="text-align:center;padding:20px;color:#9ca3af;font-size:13px;background:#f9fafb;border-radius:8px;">
-          No students enrolled yet.
+        {% if course.enrollments.count > 0 %}
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#f3f4f6;border-bottom:2px solid var(--border);">
+                <th style="padding:9px 12px;text-align:left;font-weight:600;">Student</th>
+                <th style="padding:9px 12px;text-align:left;font-weight:600;">Username / ID</th>
+                <th style="padding:9px 12px;text-align:left;font-weight:600;">Email</th>
+                <th style="padding:9px 12px;text-align:center;font-weight:600;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for enroll in course.enrollments.all %}
+              <tr style="border-bottom:1px solid #f3f4f6;" id="srow-{{ course.id }}-{{ enroll.student.id }}">
+                <td style="padding:10px 12px;">
+                  <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="width:32px;height:32px;border-radius:50%;background:var(--teal);color:#fff;
+                                display:flex;align-items:center;justify-content:center;
+                                font-size:13px;font-weight:700;flex-shrink:0;">
+                      {{ enroll.student.full_name|default:enroll.student.username|first|upper }}
+                    </div>
+                    <span style="font-weight:500;">{{ enroll.student.full_name|default:enroll.student.username }}</span>
+                  </div>
+                </td>
+                <td style="padding:10px 12px;font-family:monospace;color:var(--gray);">{{ enroll.student.username }}</td>
+                <td style="padding:10px 12px;color:var(--gray);">{{ enroll.student.email }}</td>
+                <td style="padding:10px 12px;text-align:center;">
+                  <button onclick="removeStudent({{ course.id }}, {{ enroll.student.id }}, this)"
+                          style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;
+                                 border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;font-weight:600;">
+                    Remove
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-        {% endfor %}
+        {% else %}
+        <div style="text-align:center;padding:28px;color:#9ca3af;font-size:13px;
+                    background:#f9fafb;border-radius:10px;border:1px dashed #e5e7eb;">
+          No students enrolled yet. Share the enrollment code <strong>{{ course.enrollment_code }}</strong> with students.
+        </div>
+        {% endif %}
       </div>
-    </div>
-  </div>
-</div>
+
+    </div><!-- /inner padding -->
+  </div><!-- /course-body -->
+</div><!-- /course card -->
 {% empty %}
 <div class="empty">
-  <div class="empty-icon"></div>
+  <div class="empty-icon">📚</div>
   <div class="empty-title">No courses yet</div>
   <p style="font-size:13px;">Click "+ Add Course" to create your first course.</p>
 </div>
 {% endfor %}
 
+
+
+
+<!-- ══════════ MODALS ══════════ -->
 
 <!-- Add Course -->
 <div class="modal-overlay" id="addCourseModal">
@@ -161,10 +265,16 @@
         <select id="cSemester" class="form-control">
           <option>Fall 2024</option>
           <option>Spring 2025</option>
-          <option>Fall 2025</option>
+          <option selected>Fall 2025</option>
+          <option>Spring 2026</option>
         </select>
       </div>
-      <div id="courseError" style="color:#ef4444;font-size:13px;display:none;margin-top:4px;"></div>
+      <div style="background:#e0f2fe;border:1px solid #bae6fd;border-radius:8px;
+                  padding:10px 14px;font-size:12px;color:#0369a1;">
+        A unique enrollment code will be automatically generated for this course.
+        Students can use it to self-enroll.
+      </div>
+      <div id="courseError" style="color:#ef4444;font-size:13px;display:none;margin-top:6px;"></div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-primary btn-full" onclick="submitCourse()">Create Course</button>
@@ -172,8 +282,7 @@
   </div>
 </div>
 
-
-<!--Add CLO-->
+<!-- Add CLO -->
 <div class="modal-overlay" id="addCloModal">
   <div class="modal">
     <div class="modal-head">
@@ -185,7 +294,7 @@
       <div class="form-group">
         <label class="form-label">CLO Description *</label>
         <textarea id="cloDesc" class="form-control" rows="4"
-                  placeholder="e.g. Description..."
+                  placeholder="e.g. Students will be able to..."
                   style="resize:vertical;"></textarea>
       </div>
       <div class="form-group">
@@ -202,7 +311,8 @@
       <div class="form-group">
         <label class="form-label">Map to PLOs</label>
         {% if plos %}
-        <div style="display:flex;flex-wrap:wrap;gap:10px;padding:12px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
+        <div style="display:flex;flex-wrap:wrap;gap:10px;padding:12px;
+                    background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">
           {% for plo in plos %}
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
             <input type="checkbox" class="plo-check" value="{{ plo.id }}"
@@ -213,7 +323,8 @@
           {% endfor %}
         </div>
         {% else %}
-        <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:12px;font-size:13px;color:#92400e;">
+        <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;
+                    padding:12px;font-size:13px;color:#92400e;">
           ⚠ No PLOs defined yet.
           <a href="#" onclick="closeModal('addCloModal');openModal('addPloModal');return false;"
             style="color:#20b2aa;font-weight:600;text-decoration:none;"> Create PLOs first →</a>
@@ -237,8 +348,7 @@
   </div>
 </div>
 
-
-<!--Add PLO-->
+<!-- Add PLO -->
 <div class="modal-overlay" id="addPloModal">
   <div class="modal" style="max-width:460px;">
     <div class="modal-head">
@@ -249,9 +359,10 @@
       <div class="form-group">
         <label class="form-label">PLO Description *</label>
         <textarea id="ploDesc" class="form-control" style="min-height:100px;"
-          placeholder="e.g. Description..."></textarea>
+          placeholder="e.g. Students will demonstrate..."></textarea>
       </div>
-      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;font-size:12px;color:#0369a1;">
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;
+                  padding:10px 12px;font-size:12px;color:#0369a1;">
         PLOs are institution-wide outcomes. After creating, you can link them to CLOs.
       </div>
       <div id="ploError" style="color:#ef4444;font-size:13px;display:none;margin-top:8px;"></div>
@@ -262,16 +373,19 @@
   </div>
 </div>
 
-
-<!--Add Student-->
+<!-- Add Student (manual) -->
 <div class="modal-overlay" id="addStudentModal">
   <div class="modal" style="max-width:420px;">
     <div class="modal-head">
-      <div class="modal-title">Add Student to Course</div>
+      <div class="modal-title">Add Student Manually</div>
       <button class="modal-close" onclick="closeModal('addStudentModal')">×</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="studentCourseId">
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
+                  padding:10px 12px;font-size:12px;color:#166534;margin-bottom:14px;">
+        Students can also self-enroll using the course enrollment code.
+      </div>
       <div class="form-group">
         <label class="form-label">Student Email</label>
         <input type="email" id="studentEmail" class="form-control" placeholder="student@email.com">
@@ -284,15 +398,49 @@
   </div>
 </div>
 
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-//Course
+/* ── Course accordion ── */
+function toggleCourse(id) {
+  const body    = document.getElementById('course-body-' + id);
+  const chevron = document.getElementById('chevron-c-' + id);
+  const isOpen  = body.style.display !== 'none';
+  body.style.display    = isOpen ? 'none' : 'block';
+  chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+/* ── Per-course tab switching ── */
+function switchCTab(courseId, tab) {
+  ['clo','plo','students'].forEach(t => {
+    const pane = document.getElementById('cpane-' + t + '-' + courseId);
+    const btn  = document.getElementById('ctab-' + t + '-' + courseId);
+    if (!pane || !btn) return;
+    const active = t === tab;
+    pane.style.display       = active ? 'block' : 'none';
+    btn.style.color          = active ? 'var(--teal)' : 'var(--gray)';
+    btn.style.borderBottomColor = active ? 'var(--teal)' : 'transparent';
+  });
+}
+
+/* ── Copy enrollment code ── */
+function copyCode(code) {
+  navigator.clipboard.writeText(code).then(() => {
+    const prev = event.target.textContent;
+    event.target.textContent = '✓ Copied';
+    event.target.style.color = 'var(--green)';
+    setTimeout(() => {
+      event.target.textContent = prev;
+      event.target.style.color = '';
+    }, 1500);
+  });
+}
+
+/* ── Course ── */
 async function submitCourse() {
-  const code = document.getElementById('cCode').value.trim();
-  const name = document.getElementById('cName').value.trim();
+  const code  = document.getElementById('cCode').value.trim();
+  const name  = document.getElementById('cName').value.trim();
   const errEl = document.getElementById('courseError');
   if (!code || !name) {
     errEl.textContent = 'Course code and name are required.';
@@ -300,13 +448,12 @@ async function submitCourse() {
     return;
   }
   errEl.style.display = 'none';
-  const data = {
+  const res = await apiPost("{% url 'add_course' %}", {
     code, name,
-    description: document.getElementById('cDesc').value.trim(),
+    description:  document.getElementById('cDesc').value.trim(),
     credit_hours: document.getElementById('cCredits').value,
-    semester: document.getElementById('cSemester').value,
-  };
-  const res = await apiPost("{% url 'add_course' %}", data);
+    semester:     document.getElementById('cSemester').value,
+  });
   if (res.success) {
     location.reload();
   } else {
@@ -315,7 +462,7 @@ async function submitCourse() {
   }
 }
 
-//CLO
+/* ── CLO ── */
 function openAddClo(courseId) {
   document.getElementById('cloCourseId').value = courseId;
   document.getElementById('cloDesc').value = '';
@@ -328,8 +475,8 @@ function openAddClo(courseId) {
 
 async function submitClo() {
   const courseId = document.getElementById('cloCourseId').value;
-  const desc = document.getElementById('cloDesc').value.trim();
-  const errEl = document.getElementById('cloError');
+  const desc     = document.getElementById('cloDesc').value.trim();
+  const errEl    = document.getElementById('cloError');
   if (!desc) {
     errEl.textContent = 'CLO description is required.';
     errEl.style.display = 'block';
@@ -337,12 +484,11 @@ async function submitClo() {
   }
   errEl.style.display = 'none';
   const plo_ids = [...document.querySelectorAll('.plo-check:checked')].map(c => c.value);
-  const data = {
+  const res = await apiPost(`/faculty/courses/${courseId}/add-clo/`, {
     description: desc,
     bloom_level: document.getElementById('cloBloom').value,
     plo_ids,
-  };
-  const res = await apiPost(`/faculty/courses/${courseId}/add-clo/`, data);
+  });
   if (res.success) {
     location.reload();
   } else {
@@ -354,14 +500,12 @@ async function submitClo() {
 async function deleteClo(cloId, btn) {
   if (!confirm('Delete this CLO? This will remove it from all question mappings.')) return;
   const res = await apiPost(`/faculty/clo/${cloId}/delete/`, {});
-  if (res.success) {
-    btn.closest('[style*="background:#fff"]').remove();
-  }
+  if (res.success) btn.closest('[style*="background:#f9fafb"]').remove();
 }
 
-//PLO
+/* ── PLO ── */
 async function submitPlo() {
-  const desc = document.getElementById('ploDesc').value.trim();
+  const desc  = document.getElementById('ploDesc').value.trim();
   const errEl = document.getElementById('ploError');
   if (!desc) {
     errEl.textContent = 'PLO description is required.';
@@ -378,7 +522,6 @@ async function submitPlo() {
   }
 }
 
-//Quick PLO
 async function quickAddPlo() {
   const desc = document.getElementById('quickPloDesc').value.trim();
   if (!desc) { alert('Enter PLO description'); return; }
@@ -404,33 +547,45 @@ async function quickAddPlo() {
   }
 }
 
-//Student
+/* ── Student (manual add) ── */
 function openAddStudent(courseId) {
   document.getElementById('studentCourseId').value = courseId;
   document.getElementById('studentEmail').value = '';
-  const msg = document.getElementById('studentMsg');
-  msg.style.display = 'none';
+  document.getElementById('studentMsg').style.display = 'none';
   openModal('addStudentModal');
 }
 
 async function submitAddStudent() {
   const courseId = document.getElementById('studentCourseId').value;
-  const email = document.getElementById('studentEmail').value.trim();
-  const msg = document.getElementById('studentMsg');
-  if (!email) { return; }
+  const email    = document.getElementById('studentEmail').value.trim();
+  const msg      = document.getElementById('studentMsg');
+  if (!email) return;
   const res = await apiPost(`/faculty/courses/${courseId}/add-student/`, { email });
   msg.style.display = 'block';
   if (res.success) {
-    msg.style.background = '#dcfce7';
-    msg.style.color = '#166534';
-    msg.style.border = '1px solid #86efac';
+    msg.style.cssText = 'display:block;background:#dcfce7;color:#166534;border:1px solid #86efac;padding:8px 12px;border-radius:6px;font-size:13px;';
     msg.textContent = `✓ ${res.name} added successfully`;
     setTimeout(() => location.reload(), 1000);
   } else {
-    msg.style.background = '#fee2e2';
-    msg.style.color = '#991b1b';
-    msg.style.border = '1px solid #fca5a5';
+    msg.style.cssText = 'display:block;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;padding:8px 12px;border-radius:6px;font-size:13px;';
     msg.textContent = res.error || 'Student not found';
+  }
+}
+
+/* ── Remove student ── */
+async function removeStudent(courseId, studentId, btn, rowId) {
+  if (!confirm('Remove this student from the course?')) return;
+  const res = await apiPost(`/faculty/courses/${courseId}/remove-student/${studentId}/`, {});
+  if (res.success) {
+    const rowEl = rowId
+      ? document.getElementById(rowId)
+      : document.getElementById(`srow-${courseId}-${studentId}`);
+    if (rowEl) rowEl.remove();
+    // Also remove from per-course table if triggered from global view
+    const perCourseRow = document.getElementById(`srow-${courseId}-${studentId}`);
+    if (perCourseRow) perCourseRow.remove();
+  } else {
+    alert(res.error || 'Error removing student');
   }
 }
 </script>

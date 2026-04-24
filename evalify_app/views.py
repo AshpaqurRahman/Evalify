@@ -93,8 +93,7 @@ def sign_up_html(request):
             full_name=full_name,
             role=role,
         )
-        login(request, user)
-        return redirect('home')
+        return redirect('/signin/?registered=1')
     return render(request, 'sign_up.html')
 
 
@@ -160,18 +159,23 @@ def faculty_courses(request):
     courses = Course.objects.filter(faculty=request.user).prefetch_related(
         'clos', 'clos__plos', 'enrollments', 'enrollments__student'
     )
-    # PLO count per course calculate করা
     for course in courses:
         plo_ids = set()
         for clo in course.clos.all():
             for plo in clo.plos.all():
                 plo_ids.add(plo.id)
         course.plo_count = len(plo_ids)
- 
+
+    # All unique enrolled students across all courses for the global students section
+    all_enrollments = Enrollment.objects.filter(
+        course__faculty=request.user
+    ).select_related('student', 'course').order_by('student__full_name', 'course__code')
+
     plos = PLO.objects.all()
     return render(request, 'faculty/courses.html', {
         'courses': courses,
         'plos': plos,
+        'all_enrollments': all_enrollments,
     })
  
 
@@ -237,6 +241,15 @@ def add_student_to_course(request, course_id):
 
 
 @faculty_required
+def remove_student_from_course(request, course_id, student_id):
+    course = get_object_or_404(Course, id=course_id, faculty=request.user)
+    if request.method == 'POST':
+        Enrollment.objects.filter(student_id=student_id, course=course).delete()
+        return JsonResponse({'success': True})
+    return JsonResponse({'error': 'POST required'}, status=400)
+
+
+@faculty_required
 def faculty_assessments(request):
     courses = Course.objects.filter(faculty=request.user)
     assessments = Assessment.objects.filter(course__in=courses).prefetch_related(
@@ -275,16 +288,42 @@ def create_assessment(request):
 @faculty_required
 def faculty_grading(request):
     courses = Course.objects.filter(faculty=request.user)
-    assessments = Assessment.objects.filter(course__in=courses)
+
+    course_id = request.GET.get('course')
+    if not course_id:
+        # Level 1 — course cards with submission counts
+        course_cards = []
+        for c in courses:
+            assessments = Assessment.objects.filter(course=c)
+            subs = Submission.objects.filter(assessment__in=assessments)
+            total   = subs.count()
+            pending = subs.filter(status='submitted').count()
+            graded  = subs.filter(status__in=['graded', 'flagged']).count()
+            if total > 0:
+                course_cards.append({
+                    'course':  c,
+                    'total':   total,
+                    'pending': pending,
+                    'graded':  graded,
+                })
+        return render(request, 'faculty/grading.html', {
+            'course_cards': course_cards,
+            'selected_course': None,
+        })
+
+    # Level 2 — submissions for selected course
+    selected_course = get_object_or_404(Course, id=course_id, faculty=request.user)
+    assessments = Assessment.objects.filter(course=selected_course)
     submissions = Submission.objects.filter(
         assessment__in=assessments
     ).select_related('student', 'assessment__course').order_by('-submitted_at')
     return render(request, 'faculty/grading.html', {
-        'submissions': submissions,
-        'assessments': assessments,
-        'pending': submissions.filter(status='submitted').count(),
-        'graded': submissions.filter(status='graded').count(),
-        'flagged': submissions.filter(status='flagged').count(),
+        'submissions':     submissions,
+        'assessments':     assessments,
+        'selected_course': selected_course,
+        'pending':         submissions.filter(status='submitted').count(),
+        'graded':          submissions.filter(status__in=['graded', 'flagged']).count(),
+        'course_cards':    None,
     })
 
 
@@ -378,7 +417,7 @@ def grade_submission(request, sub_id):
  
         was_graded_before = sub.status in ('graded', 'flagged')  # ← নতুন
  
-        status = 'flagged' if (sub.plagiarism_score > 30 or sub.ai_content_score > 50) else 'graded'
+        status = 'graded'
         sub.total_score = total
         sub.feedback    = data.get('feedback', '')
         sub.status      = status
@@ -399,10 +438,10 @@ def faculty_analytics(request):
     selected_course = None
     grade_dist = []
     clo_attainment = []
-    weak_students = []
-    integrity_data = {'clean': 0, 'ai_flag': 0, 'plagiarism': 0}
-    student_clo_data = []
+    student_details = []
     plo_attainment = []
+    escar_clos = []
+    escar_plos = []
 
     course_id = request.GET.get('course')
     if course_id:
@@ -411,81 +450,191 @@ def faculty_analytics(request):
         selected_course = courses.first()
 
     if selected_course:
-        assessments = Assessment.objects.filter(course=selected_course)
-        graded_subs = Submission.objects.filter(
-            assessment__in=assessments, status__in=['graded', 'flagged']
-        )
-        ranges = [('90-100', 90, 100), ('80-89', 80, 89), ('70-79', 70, 79), ('60-69', 60, 69), ('<60', 0, 59)]
-        for label, lo, hi in ranges:
-            count = sum(
-                1 for s in graded_subs
-                if s.assessment.total_marks > 0
-                and lo <= (s.total_score / s.assessment.total_marks * 100) <= hi
+        SUB_TYPES = {'mid', 'final'}
+
+        # Only published assessments — same scope as marks sheet
+        assessments = list(
+            Assessment.objects.filter(course=selected_course, status='published')
+            .prefetch_related(
+                'questions__clos', 'questions__plos',
+                'questions__sub_questions__clos', 'questions__sub_questions__plos',
             )
-            grade_dist.append({'label': label, 'count': count})
+            .order_by('assessment_type', 'created_at')
+        )
 
-        for clo in selected_course.clos.all():
-            q_ids = list(Question.objects.filter(assessment__in=assessments, clos=clo).values_list('id', flat=True))
-            qgs = QuestionGrade.objects.filter(question_id__in=q_ids, submission__in=graded_subs)
-            total_possible = sum(Question.objects.get(id=qid).max_marks for qid in q_ids) * max(graded_subs.count(), 1)
-            total_obtained = sum(g.marks_obtained for g in qgs)
-            attainment = round((total_obtained / total_possible * 100) if total_possible > 0 else 0, 1)
-            clo_attainment.append({'code': clo.code, 'attainment': attainment})
-
-        # Per-student average CLO attainment
-        for enrollment in Enrollment.objects.filter(course=selected_course).select_related('student'):
-            student = enrollment.student
-            s_subs = graded_subs.filter(student=student)
-            if not s_subs.exists():
-                continue
-            clo_atts = []
-            for clo in selected_course.clos.all():
-                q_ids = list(Question.objects.filter(assessment__in=assessments, clos=clo).values_list('id', flat=True))
-                if not q_ids:
-                    continue
-                qgs = QuestionGrade.objects.filter(question_id__in=q_ids, submission__in=s_subs)
-                tp = sum(Question.objects.get(id=qid).max_marks for qid in q_ids)
-                to = sum(g.marks_obtained for g in qgs)
-                if tp > 0:
-                    clo_atts.append(to / tp * 100)
-            if clo_atts:
-                student_clo_data.append({
-                    'name': (student.full_name or student.username)[:20],
-                    'attainment': round(sum(clo_atts) / len(clo_atts), 1)
-                })
-
-        # PLO attainment aggregated across all graded submissions
-        plo_agg = defaultdict(lambda: {'obtained': 0.0, 'total': 0.0, 'plo': None})
-        for clo in selected_course.clos.all():
-            q_ids = list(Question.objects.filter(assessment__in=assessments, clos=clo).values_list('id', flat=True))
-            qgs = QuestionGrade.objects.filter(question_id__in=q_ids, submission__in=graded_subs)
-            tp = sum(Question.objects.get(id=qid).max_marks for qid in q_ids) * max(graded_subs.count(), 1)
-            to = sum(g.marks_obtained for g in qgs)
-            for plo in clo.plos.all():
-                if plo_agg[plo.id]['plo'] is None:
-                    plo_agg[plo.id]['plo'] = plo
-                plo_agg[plo.id]['obtained'] += to
-                plo_agg[plo.id]['total'] += tp
-        for pid, pd in plo_agg.items():
-            p = pd['plo']
-            att = round((pd['obtained'] / pd['total'] * 100) if pd['total'] > 0 else 0, 1)
-            plo_attainment.append({'code': p.code, 'description': p.description, 'attainment': att})
-
-        for sub in graded_subs:
-            if sub.assessment.total_marks > 0:
-                pct = round(sub.total_score / sub.assessment.total_marks * 100, 1)
-                if pct < 70:
-                    weak_students.append({
-                        'name': sub.student.full_name or sub.student.username,
-                        'score': f"{int(sub.total_score)}/{sub.assessment.total_marks}",
-                        'pct': pct
+        # Build column list exactly like marks sheet:
+        # mid/final → one column per sub-question (with sub-question CLOs/PLOs)
+        # all others → one column per question (with question CLOs/PLOs)
+        all_columns = []
+        for a in assessments:
+            use_subs = a.assessment_type in SUB_TYPES
+            for q in a.questions.all().order_by('order'):
+                subs = list(q.sub_questions.all().order_by('order')) if use_subs else []
+                if use_subs and subs:
+                    for sq in subs:
+                        all_columns.append({
+                            'is_sub':    True,
+                            'entity_id': sq.id,
+                            'max_marks': sq.max_marks,
+                            'clo_ids':   [c.id for c in sq.clos.all()],
+                            'plo_ids':   [p.id for p in sq.plos.all()],
+                        })
+                else:
+                    all_columns.append({
+                        'is_sub':    False,
+                        'entity_id': q.id,
+                        'max_marks': q.max_marks,
+                        'clo_ids':   [c.id for c in q.clos.all()],
+                        'plo_ids':   [p.id for p in q.plos.all()],
                     })
-            if sub.plagiarism_score > 30:
-                integrity_data['plagiarism'] += 1
-            elif sub.ai_content_score > 50:
-                integrity_data['ai_flag'] += 1
-            else:
-                integrity_data['clean'] += 1
+
+        clos = list(selected_course.clos.all())
+
+        # Fixed denominators across ALL published assessments (same as marks sheet)
+        clo_max = {
+            clo.id: sum(col['max_marks'] for col in all_columns if clo.id in col['clo_ids'])
+            for clo in clos
+        }
+        plo_ids_used = set()
+        for col in all_columns:
+            plo_ids_used.update(col['plo_ids'])
+        plos = list(PLO.objects.filter(id__in=plo_ids_used))
+        plo_map = {p.id: p for p in plos}
+        plo_max = {
+            p.id: sum(col['max_marks'] for col in all_columns if p.id in col['plo_ids'])
+            for p in plos
+        }
+        total_max_overall = sum(col['max_marks'] for col in all_columns)
+
+        # University grading scale buckets (label, lo_inclusive, hi_exclusive)
+        GRADE_SCALE = [
+            ('A+', 80, 200), ('A', 75, 80), ('A-', 70, 75),
+            ('B+', 65, 70),  ('B', 60, 65), ('B-', 55, 60),
+            ('C+', 50, 55),  ('C', 45, 50), ('D', 40, 45), ('F', 0, 40),
+        ]
+        grade_buckets = {label: 0 for label, _, _ in GRADE_SCALE}
+
+        # Fetch all grades in two bulk queries (same as marks sheet)
+        q_ids  = [col['entity_id'] for col in all_columns if not col['is_sub']]
+        sq_ids = [col['entity_id'] for col in all_columns if col['is_sub']]
+        q_grade_map  = {}
+        sq_grade_map = {}
+        if q_ids:
+            for g in QuestionGrade.objects.filter(
+                question_id__in=q_ids,
+                submission__assessment__course=selected_course,
+            ).select_related('submission__student'):
+                q_grade_map.setdefault(g.submission.student_id, {})[g.question_id] = g.marks_obtained
+        if sq_ids:
+            for g in SubQuestionGrade.objects.filter(
+                sub_question_id__in=sq_ids,
+                submission__assessment__course=selected_course,
+            ).select_related('submission__student'):
+                sq_grade_map.setdefault(g.submission.student_id, {})[g.sub_question_id] = g.marks_obtained
+
+        # All distinct enrolled students (no duplicate-enrollment risk)
+        students = list(
+            User.objects.filter(enrollments__course=selected_course)
+            .distinct().order_by('full_name', 'username')
+        )
+        total_enrolled = len(students)
+
+        clo_pct_sums = {clo.id: {'sum': 0.0, 'count': 0} for clo in clos}
+        plo_pct_sums = {p.id: {'sum': 0.0, 'count': 0, 'plo': p} for p in plos}
+
+        for student in students:
+            sq_m = sq_grade_map.get(student.id, {})
+            q_m  = q_grade_map.get(student.id, {})
+            if not sq_m and not q_m:
+                continue  # never graded — skip
+
+            # Grade distribution — bucket this student's overall %
+            if total_max_overall > 0:
+                total_raw_student = sum(
+                    sq_m.get(col['entity_id'], 0) if col['is_sub'] else q_m.get(col['entity_id'], 0)
+                    for col in all_columns
+                )
+                student_pct = total_raw_student / total_max_overall * 100
+                for lbl, lo, hi in GRADE_SCALE:
+                    if lo <= student_pct < hi:
+                        grade_buckets[lbl] += 1
+                        break
+
+            def _mark(col):
+                return sq_m.get(col['entity_id'], 0) if col['is_sub'] else q_m.get(col['entity_id'], 0)
+
+            clo_data = []
+            for clo in clos:
+                mx = clo_max[clo.id]
+                if mx == 0:
+                    continue
+                raw = sum(_mark(col) for col in all_columns if clo.id in col['clo_ids'])
+                pct = round(raw / mx * 100, 1)
+                clo_data.append({'code': clo.code, 'pct': pct})
+                clo_pct_sums[clo.id]['sum']   += pct
+                clo_pct_sums[clo.id]['count'] += 1
+
+            plo_data = []
+            for p in plos:
+                mx = plo_max[p.id]
+                if mx == 0:
+                    continue
+                raw = sum(_mark(col) for col in all_columns if p.id in col['plo_ids'])
+                pct = round(raw / mx * 100, 1)
+                plo_data.append({'code': p.code, 'pct': pct})
+                plo_pct_sums[p.id]['sum']   += pct
+                plo_pct_sums[p.id]['count'] += 1
+
+            overall_pcts = [d['pct'] for d in clo_data]
+            overall = round(sum(overall_pcts) / len(overall_pcts), 1) if overall_pcts else 0.0
+            student_details.append({
+                'name':     student.full_name or student.username,
+                'clo_data': clo_data,
+                'plo_data': plo_data,
+                'overall':  overall,
+            })
+
+        # Build grade_dist list for chart (preserve GRADE_SCALE order)
+        grade_dist = [{'label': lbl, 'count': grade_buckets[lbl]} for lbl, _, _ in GRADE_SCALE]
+
+        # Class-wide CLO attainment — average of per-student CLO %
+        for clo in clos:
+            d = clo_pct_sums[clo.id]
+            avg = round(d['sum'] / d['count'], 1) if d['count'] > 0 else 0.0
+            clo_attainment.append({'code': clo.code, 'attainment': avg})
+
+        # Class-wide PLO attainment
+        for p in plos:
+            d = plo_pct_sums[p.id]
+            avg = round(d['sum'] / d['count'], 1) if d['count'] > 0 else 0.0
+            plo_attainment.append({'code': p.code, 'description': p.description, 'attainment': avg})
+
+        # eSCAR — same averages, attained if class avg >= 60%
+        for clo in clos:
+            d = clo_pct_sums[clo.id]
+            avg = round(d['sum'] / d['count'], 1) if d['count'] > 0 else 0.0
+            attained = avg >= 60
+            action = ('CLO attained. Maintain current teaching strategies.' if attained
+                      else 'CLO not attained. Review teaching methods and provide additional practice.')
+            escar_clos.append({'code': clo.code, 'count': d['count'], 'total': total_enrolled,
+                               'pct': avg, 'attained': attained, 'action': action})
+
+        for p in plos:
+            d = plo_pct_sums[p.id]
+            avg = round(d['sum'] / d['count'], 1) if d['count'] > 0 else 0.0
+            attained = avg >= 60
+            action = ('PLO attained. Continue current curriculum alignment.' if attained
+                      else 'PLO not attained. Strengthen curriculum alignment and CLO coverage.')
+            escar_plos.append({'code': p.code, 'count': d['count'], 'total': total_enrolled,
+                               'pct': avg, 'attained': attained, 'action': action})
+
+        escar_rows = [
+            {'clo': escar_clos[i] if i < len(escar_clos) else None,
+             'plo': escar_plos[i] if i < len(escar_plos) else None}
+            for i in range(max(len(escar_clos), len(escar_plos), 1))
+        ]
+    else:
+        escar_rows = []
 
     return render(request, 'faculty/analytics.html', {
         'courses': courses,
@@ -493,12 +642,10 @@ def faculty_analytics(request):
         'grade_dist': json.dumps(grade_dist),
         'clo_attainment': json.dumps(clo_attainment),
         'clo_attainment_list': clo_attainment,
-        'weak_students': weak_students,
-        'integrity_data': json.dumps(integrity_data),
-        'student_clo_data': json.dumps(student_clo_data),
-        'student_clo_list': student_clo_data,
+        'student_details': student_details,
         'plo_attainment': json.dumps(plo_attainment),
         'plo_attainment_list': plo_attainment,
+        'escar_rows': escar_rows,
     })
 
 
@@ -567,17 +714,29 @@ def student_dashboard(request):
 @student_required
 def student_courses(request):
     enrollments = Enrollment.objects.filter(student=request.user).select_related('course')
-    enrolled_ids = [e.course_id for e in enrollments]
     courses = []
     for e in enrollments:
         c = e.course
         c.clos_list = c.clos.prefetch_related('plos').all()
         c.assignment_count = Assessment.objects.filter(course=c, status='published').count()
         courses.append(c)
-    all_courses = Course.objects.exclude(id__in=enrolled_ids)
-    return render(request, 'student/courses.html', {
-        'courses': courses, 'all_courses': all_courses
-    })
+    return render(request, 'student/courses.html', {'courses': courses})
+
+
+@student_required
+def enroll_via_code(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        code = data.get('code', '').strip().upper()
+        try:
+            course = Course.objects.get(enrollment_code=code)
+            _, created = Enrollment.objects.get_or_create(student=request.user, course=course)
+            if created:
+                return JsonResponse({'success': True, 'course': f"{course.code}: {course.name}"})
+            return JsonResponse({'error': 'You are already enrolled in this course.'}, status=400)
+        except Course.DoesNotExist:
+            return JsonResponse({'error': 'Invalid enrollment code. Please check and try again.'}, status=404)
+    return JsonResponse({'error': 'POST required'}, status=400)
 
 
 @student_required
@@ -1030,11 +1189,36 @@ def publish_assessment(request, assignment_id):
 
 @student_required
 def student_assignments(request):
-    enrollments = Enrollment.objects.filter(student=request.user)
-    courses = [e.course for e in enrollments]
+    enrollments = Enrollment.objects.filter(student=request.user).select_related('course')
+    course_cards = []
+    for e in enrollments:
+        course = e.course
+        total = Assessment.objects.filter(course=course, status='published').count()
+        submitted = Submission.objects.filter(
+            student=request.user, assessment__course=course
+        ).count()
+        if total > 0:
+            course_cards.append({
+                'course':    course,
+                'total':     total,
+                'submitted': submitted,
+                'pending':   total - submitted,
+            })
+    return render(request, 'student/assignments.html', {'course_cards': course_cards})
+
+
+@student_required
+def student_course_assignments(request, course_id):
+    enrolled_ids = list(Enrollment.objects.filter(
+        student=request.user
+    ).values_list('course_id', flat=True))
+    if course_id not in enrolled_ids:
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden()
+    course = get_object_or_404(Course, id=course_id)
     assessments = Assessment.objects.filter(
-        course__in=courses, status='published'
-    ).select_related('course').prefetch_related('questions__clos', 'questions__plos').order_by('-created_at')
+        course=course, status='published'
+    ).prefetch_related('questions__clos', 'questions__plos').order_by('-created_at')
     submissions = {
         s.assessment_id: s
         for s in Submission.objects.filter(student=request.user, assessment__in=assessments)
@@ -1044,42 +1228,75 @@ def student_assignments(request):
         sub    = submissions.get(a.id)
         window = check_submission_window(a) if not sub else None
         assignments_with_status.append((a, sub, window))
-    return render(request, 'student/assignments.html', {
+    return render(request, 'student/course_assignments.html', {
+        'course':                  course,
         'assignments_with_status': assignments_with_status,
     })
 
 
 @student_required
 def submit_assignment(request, assignment_id):
+    from django.shortcuts import redirect as _redirect
     assignment = get_object_or_404(Assessment, id=assignment_id, status='published')
-    if not Enrollment.objects.filter(student=request.user, course=assignment.course).exists():
-        return JsonResponse({'error': 'You are not enrolled in this course.'}, status=403)
-    if Submission.objects.filter(student=request.user, assessment=assignment).exists():
-        return JsonResponse({'error': 'You have already submitted this assignment.'}, status=400)
 
-    # ── Submission window check ────────────────────────────────────────
-    window = check_submission_window(assignment)
-    if not window['can_submit']:
-        return JsonResponse({'error': window['window_msg']}, status=403)
+    if not Enrollment.objects.filter(student=request.user, course=assignment.course).exists():
+        from django.http import HttpResponseForbidden
+        return HttpResponseForbidden()
+
+    existing_sub = Submission.objects.filter(student=request.user, assessment=assignment).first()
+    window       = check_submission_window(assignment)
+    questions    = assignment.questions.prefetch_related(
+        'clos', 'plos',
+        'sub_questions__clos', 'sub_questions__plos',
+    ).order_by('order')
+
+    error = None
 
     if request.method == 'POST':
-        content       = request.POST.get('content', '').strip()
-        uploaded_file = request.FILES.get('submitted_file')
-        if not content and not uploaded_file:
-            return JsonResponse({'error': 'Please provide an answer or upload a file.'}, status=400)
-        sub = Submission.objects.create(
-            student=request.user,
-            assessment=assignment,
-            content=content,
-            submitted_file=uploaded_file,
-        )
-        apply_late_deduction(sub)
-        return JsonResponse({
-            'success':    True,
-            'is_late':    window['is_late'],
-            'window_msg': window['window_msg'],
-        })
-    return JsonResponse({'error': 'POST required'}, status=400)
+        if existing_sub:
+            error = 'You have already submitted this assignment.'
+        elif not window['can_submit']:
+            error = window['window_msg']
+        else:
+            content       = request.POST.get('content', '').strip()
+            uploaded_file = request.FILES.get('submitted_file')
+            if not content and not uploaded_file:
+                error = 'Please provide an answer or upload a file.'
+            else:
+                sub = Submission.objects.create(
+                    student=request.user,
+                    assessment=assignment,
+                    content=content,
+                    submitted_file=uploaded_file,
+                )
+                apply_late_deduction(sub)
+                return _redirect('student_assignments')
+
+    return render(request, 'student/submit_assignment.html', {
+        'assignment':   assignment,
+        'questions':    questions,
+        'existing_sub': existing_sub,
+        'window':       window,
+        'error':        error,
+    })
+
+
+@student_required
+def unsubmit_assignment(request, assignment_id):
+    from django.shortcuts import redirect as _redirect
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=400)
+
+    assignment = get_object_or_404(Assessment, id=assignment_id, status='published')
+    sub = Submission.objects.filter(student=request.user, assessment=assignment).first()
+
+    if not sub:
+        return JsonResponse({'error': 'No submission found.'}, status=404)
+    if sub.status == 'graded':
+        return JsonResponse({'error': 'Cannot unsubmit a graded submission.'}, status=403)
+
+    sub.delete()
+    return _redirect('submit_assignment', assignment_id=assignment_id)
 
 
 @faculty_required
@@ -1096,9 +1313,15 @@ def faculty_marks_sheet(request):
     if not selected_course:
         return render(request, 'faculty/marks_sheet.html', {'courses': courses, 'selected_course': None})
 
+    SUB_TYPES = {'mid', 'final'}
+    ALPHA = 'abcdefghijklmnopqrstuvwxyz'
+
     assessments = list(
         Assessment.objects.filter(course=selected_course, status='published')
-        .prefetch_related('questions__clos', 'questions__plos')
+        .prefetch_related(
+            'questions__clos', 'questions__plos',
+            'questions__sub_questions__clos', 'questions__sub_questions__plos',
+        )
         .order_by('assessment_type', 'created_at')
     )
 
@@ -1108,32 +1331,71 @@ def faculty_marks_sheet(request):
         questions = list(a.questions.all().order_by('order'))
         if not questions:
             continue
-        assessment_groups.append({'assessment': a, 'questions': questions, 'col_count': len(questions)})
+        use_subs = a.assessment_type in SUB_TYPES
+        cols_for_a = []
         for q in questions:
-            all_columns.append({
-                'assessment': a,
-                'question': q,
-                'clo_ids': [c.id for c in q.clos.all()],
-                'plo_ids': [p.id for p in q.plos.all()],
-                'clo_codes': [c.code for c in q.clos.all()],
-                'plo_codes': [p.code for p in q.plos.all()],
-            })
+            subs = list(q.sub_questions.all().order_by('order')) if use_subs else []
+            if use_subs and subs:
+                for idx, sq in enumerate(subs):
+                    col = {
+                        'label':     f"Q{q.order} ({ALPHA[idx]})",
+                        'is_sub':    True,
+                        'col_id':    f"sq_{sq.id}",
+                        'col_type':  'sub',
+                        'entity_id': sq.id,
+                        'question':  q,
+                        'sub_q':     sq,
+                        'max_marks': sq.max_marks,
+                        'clo_ids':   [c.id for c in sq.clos.all()],
+                        'plo_ids':   [p.id for p in sq.plos.all()],
+                        'clo_codes': [c.code for c in sq.clos.all()],
+                        'plo_codes': [p.code for p in sq.plos.all()],
+                    }
+                    cols_for_a.append(col)
+                    all_columns.append(col)
+            else:
+                col = {
+                    'label':     f"Q{q.order}",
+                    'is_sub':    False,
+                    'col_id':    f"q_{q.id}",
+                    'col_type':  'q',
+                    'entity_id': q.id,
+                    'question':  q,
+                    'sub_q':     None,
+                    'max_marks': q.max_marks,
+                    'clo_ids':   [c.id for c in q.clos.all()],
+                    'plo_ids':   [p.id for p in q.plos.all()],
+                    'clo_codes': [c.code for c in q.clos.all()],
+                    'plo_codes': [p.code for p in q.plos.all()],
+                }
+                cols_for_a.append(col)
+                all_columns.append(col)
+        assessment_groups.append({'assessment': a, 'questions': questions, 'col_count': len(cols_for_a)})
 
     students = list(
         User.objects.filter(enrollments__course=selected_course)
         .distinct().order_by('full_name', 'username')
     )
 
-    question_ids = [col['question'].id for col in all_columns]
-    grades = QuestionGrade.objects.filter(
-        question_id__in=question_ids,
-        submission__assessment__course=selected_course
-    ).select_related('submission__student')
+    # Fetch question-level grades (non-sub columns)
+    q_ids = [col['entity_id'] for col in all_columns if not col['is_sub']]
+    q_grade_map = {}
+    if q_ids:
+        for g in QuestionGrade.objects.filter(
+            question_id__in=q_ids,
+            submission__assessment__course=selected_course
+        ).select_related('submission__student'):
+            q_grade_map.setdefault(g.submission.student_id, {})[g.question_id] = g.marks_obtained
 
-    grade_map = {}
-    for g in grades:
-        sid = g.submission.student_id
-        grade_map.setdefault(sid, {})[g.question_id] = g.marks_obtained
+    # Fetch sub-question-level grades (mid/final sub columns)
+    sq_ids = [col['entity_id'] for col in all_columns if col['is_sub']]
+    sq_grade_map = {}
+    if sq_ids:
+        for g in SubQuestionGrade.objects.filter(
+            sub_question_id__in=sq_ids,
+            submission__assessment__course=selected_course
+        ).select_related('submission__student'):
+            sq_grade_map.setdefault(g.submission.student_id, {})[g.sub_question_id] = g.marks_obtained
 
     clos = list(selected_course.clos.all().order_by('code'))
     plo_ids_used = set()
@@ -1142,41 +1404,56 @@ def faculty_marks_sheet(request):
     plos = list(PLO.objects.filter(id__in=plo_ids_used).order_by('code'))
 
     clo_max = {
-        clo.id: sum(col['question'].max_marks for col in all_columns if clo.id in col['clo_ids'])
+        clo.id: sum(col['max_marks'] for col in all_columns if clo.id in col['clo_ids'])
         for clo in clos
     }
     plo_max = {
-        plo.id: sum(col['question'].max_marks for col in all_columns if plo.id in col['plo_ids'])
+        plo.id: sum(col['max_marks'] for col in all_columns if plo.id in col['plo_ids'])
         for plo in plos
     }
-    total_max = sum(col['question'].max_marks for col in all_columns)
+    total_max = sum(col['max_marks'] for col in all_columns)
 
     rows = []
     for i, student in enumerate(students):
-        sg = grade_map.get(student.id, {})
+        sq_m = sq_grade_map.get(student.id, {})
+        q_m  = q_grade_map.get(student.id, {})
+
+        def _val(col):
+            return sq_m.get(col['entity_id']) if col['is_sub'] else q_m.get(col['entity_id'])
+
         cells = [
-            {'question_id': col['question'].id, 'max_marks': col['question'].max_marks,
-             'value': sg.get(col['question'].id)}
+            {
+                'col_id':    col['col_id'],
+                'col_type':  col['col_type'],
+                'entity_id': col['entity_id'],
+                'max_marks': col['max_marks'],
+                'value':     _val(col),
+            }
             for col in all_columns
         ]
         total = sum(c['value'] for c in cells if c['value'] is not None)
+
         clo_cells = [
-            {'clo_id': clo.id, 'code': clo.code,
-             'raw': sum(sg.get(col['question'].id, 0) for col in all_columns if clo.id in col['clo_ids']),
-             'max': clo_max[clo.id]}
+            {'clo_id': clo.id, 'code': clo.code, 'max': clo_max[clo.id],
+             'raw': sum(
+                 (sq_m.get(col['entity_id'], 0) if col['is_sub'] else q_m.get(col['entity_id'], 0))
+                 for col in all_columns if clo.id in col['clo_ids']
+             )}
             for clo in clos
         ]
         plo_cells = [
-            {'plo_id': plo.id, 'code': plo.code,
-             'raw': sum(sg.get(col['question'].id, 0) for col in all_columns if plo.id in col['plo_ids']),
-             'max': plo_max[plo.id]}
+            {'plo_id': plo.id, 'code': plo.code, 'max': plo_max[plo.id],
+             'raw': sum(
+                 (sq_m.get(col['entity_id'], 0) if col['is_sub'] else q_m.get(col['entity_id'], 0))
+                 for col in all_columns if plo.id in col['plo_ids']
+             )}
             for plo in plos
         ]
         rows.append({
             'sl': i + 1,
             'student': student,
-            'cells': cells,
-            'total': total,
+            'cells':   cells,
+            'total':   total,
             'clo_cells': clo_cells,
             'plo_cells': plo_cells,
         })
@@ -1186,30 +1463,36 @@ def faculty_marks_sheet(request):
     t2_colspan = 2 + 3 * (len(clos) + len(plos))
 
     js_columns = json.dumps([
-        {'qid': col['question'].id, 'max': col['question'].max_marks,
-         'clo_ids': col['clo_ids'], 'plo_ids': col['plo_ids']}
+        {
+            'col_id':    col['col_id'],
+            'col_type':  col['col_type'],
+            'entity_id': col['entity_id'],
+            'max':       col['max_marks'],
+            'clo_ids':   col['clo_ids'],
+            'plo_ids':   col['plo_ids'],
+        }
         for col in all_columns
     ])
     js_clos = json.dumps([{'id': c.id, 'code': c.code, 'max': clo_max[c.id]} for c in clos])
     js_plos = json.dumps([{'id': p.id, 'code': p.code, 'max': plo_max[p.id]} for p in plos])
 
     return render(request, 'faculty/marks_sheet.html', {
-        'courses': courses,
-        'selected_course': selected_course,
+        'courses':           courses,
+        'selected_course':   selected_course,
         'assessment_groups': assessment_groups,
-        'all_columns': all_columns,
-        'rows': rows,
-        'clos': clos,
-        'plos': plos,
-        'clo_max': clo_max,
-        'plo_max': plo_max,
-        'total_max': total_max,
-        'clo_max_list': clo_max_list,
-        'plo_max_list': plo_max_list,
-        't2_colspan': t2_colspan,
-        'js_columns': js_columns,
-        'js_clos': js_clos,
-        'js_plos': js_plos,
+        'all_columns':       all_columns,
+        'rows':              rows,
+        'clos':              clos,
+        'plos':              plos,
+        'clo_max':           clo_max,
+        'plo_max':           plo_max,
+        'total_max':         total_max,
+        'clo_max_list':      clo_max_list,
+        'plo_max_list':      plo_max_list,
+        't2_colspan':        t2_colspan,
+        'js_columns':        js_columns,
+        'js_clos':           js_clos,
+        'js_plos':           js_plos,
     })
 
 
@@ -1223,20 +1506,50 @@ def update_question_grade(request):
     except (TypeError, ValueError):
         marks = 0
 
-    question = get_object_or_404(Question, id=data.get('question_id'),
-                                  assessment__course__faculty=request.user)
     student = get_object_or_404(User, id=data.get('student_id'))
-    marks = min(max(marks, 0), question.max_marks)
+    col_type = data.get('col_type', 'q')
 
-    submission, _ = Submission.objects.get_or_create(
-        student=student, assessment=question.assessment,
-        defaults={'content': '', 'status': 'graded', 'total_score': 0,
-                  'plagiarism_score': 0, 'ai_content_score': 0}
-    )
-    QuestionGrade.objects.update_or_create(
-        submission=submission, question=question,
-        defaults={'marks_obtained': marks}
-    )
+    if col_type == 'sub':
+        sub_q = get_object_or_404(SubQuestion, id=data.get('entity_id'))
+        if sub_q.question.assessment.course.faculty != request.user:
+            return JsonResponse({'error': 'Forbidden'}, status=403)
+        marks = min(max(marks, 0), sub_q.max_marks)
+        submission, _ = Submission.objects.get_or_create(
+            student=student, assessment=sub_q.question.assessment,
+            defaults={'content': '', 'status': 'graded', 'total_score': 0,
+                      'plagiarism_score': 0, 'ai_content_score': 0}
+        )
+        SubQuestionGrade.objects.update_or_create(
+            submission=submission, sub_question=sub_q,
+            defaults={'marks_obtained': marks}
+        )
+        # Roll up sub-question totals to QuestionGrade
+        sq_total = sum(
+            g.marks_obtained
+            for g in SubQuestionGrade.objects.filter(
+                submission=submission, sub_question__question=sub_q.question
+            )
+        )
+        QuestionGrade.objects.update_or_create(
+            submission=submission, question=sub_q.question,
+            defaults={'marks_obtained': sq_total}
+        )
+    else:
+        # Backward-compatible: accept entity_id or question_id
+        qid = data.get('entity_id') or data.get('question_id')
+        question = get_object_or_404(Question, id=qid,
+                                      assessment__course__faculty=request.user)
+        marks = min(max(marks, 0), question.max_marks)
+        submission, _ = Submission.objects.get_or_create(
+            student=student, assessment=question.assessment,
+            defaults={'content': '', 'status': 'graded', 'total_score': 0,
+                      'plagiarism_score': 0, 'ai_content_score': 0}
+        )
+        QuestionGrade.objects.update_or_create(
+            submission=submission, question=question,
+            defaults={'marks_obtained': marks}
+        )
+
     total = sum(g.marks_obtained for g in QuestionGrade.objects.filter(submission=submission))
     submission.total_score = total
     if submission.status == 'submitted':
